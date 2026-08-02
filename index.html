@@ -71,7 +71,13 @@
     box-shadow: 0 0 0 1px var(--accent) inset;
   }
 
-  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
+  .scroll-top-btn {
+    position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: #001417; display: none; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; z-index: 20; border: 1px solid transparent;
+  }
+  .scroll-top-btn.focused, .scroll-top-btn:focus { outline: none; border-color: #fff; }
 
   /* ---------- Tabs ---------- */
   .tabs {
@@ -380,7 +386,9 @@
             Shorts
           </div>
           <div class="shorts-row" id="shorts-row"></div>
+          <div class="empty-state" id="home-loading-more" style="display:none;">Loading more…</div>
         </div>
+        <div class="scroll-top-btn" id="scroll-top-btn" tabindex="0">↑</div>
       </div>
     </div>
   </div>
@@ -461,7 +469,7 @@
     </div>
     <div class="watch-body">
       <div class="watch-main" id="watch-main">
-        <div class="back-btn" data-nav="home" tabindex="0" style="margin-bottom:6px;">&larr; Back</div>
+        <div class="back-btn" data-nav="return" tabindex="0" style="margin-bottom:6px;">&larr; Back</div>
         <div class="watch-title" id="watch-title">Loading…</div>
         <div class="watch-stats" id="watch-stats"></div>
 
@@ -579,7 +587,7 @@ function toast(msg) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(API_BASE + path, opts);
+  const res = await fetch(API_BASE + path, { cache: "no-store", ...(opts || {}) });
   if (!res.ok && res.status !== 401) throw new Error("api error " + path);
   return res.json();
 }
@@ -687,8 +695,7 @@ document.addEventListener("keydown", (e) => {
 
 function goBack() {
   if (state.screen === "watch") {
-    stopPlayer();
-    showScreen("home");
+    returnFromWatch();
   } else if (state.screen === "subs" || state.screen === "keyboard" || state.screen === "history") {
     showScreen("home");
   } else if (state.screen === "shorts") {
@@ -732,17 +739,64 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function renderHomeGrid(videos, append) {
+  const grid = document.getElementById("home-grid");
+  if (!append) grid.innerHTML = "";
+  videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+}
+
+state.homeCache = null; // { mode: 'tab'|'search', tab, query, videos, nextPageToken }
+state.homeLoadingMore = false;
+
 async function loadHome(tab) {
+  state.currentTab = tab;
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Loading videos…</div>`;
+  document.getElementById("home-content").scrollTop = 0;
   try {
     const data = await api(`/api/home?tab=${tab}`);
-    grid.innerHTML = "";
-    data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    renderHomeGrid(data.videos, false);
+    state.homeCache = { mode: "tab", tab, query: null, videos: data.videos, nextPageToken: data.nextPageToken || null };
   } catch (e) {
     grid.innerHTML = `<div class="empty-state">Couldn't load videos. Check the Worker URL/API key.</div>`;
+    state.homeCache = null;
   }
   refreshFocusables();
+}
+
+// Infinite scroll: fetches and appends the next batch once the user
+// scrolls near the bottom of the current tab's list.
+async function loadMoreHome() {
+  if (!state.homeCache || state.homeCache.mode !== "tab" || !state.homeCache.nextPageToken || state.homeLoadingMore) return;
+  state.homeLoadingMore = true;
+  document.getElementById("home-loading-more").style.display = "block";
+  try {
+    const data = await api(`/api/home?tab=${state.homeCache.tab}&pageToken=${state.homeCache.nextPageToken}`);
+    const existingIds = new Set(state.homeCache.videos.map((v) => v.id));
+    const newVideos = (data.videos || []).filter((v) => !existingIds.has(v.id));
+    renderHomeGrid(newVideos, true);
+    state.homeCache.videos = state.homeCache.videos.concat(newVideos);
+    state.homeCache.nextPageToken = data.nextPageToken || null;
+    refreshFocusables();
+  } catch (e) { /* silent — scrolling further will retry */ }
+  state.homeLoadingMore = false;
+  document.getElementById("home-loading-more").style.display = "none";
+}
+
+function setupHomeScrollHandling() {
+  const content = document.getElementById("home-content");
+  const topBtn = document.getElementById("scroll-top-btn");
+  content.addEventListener("scroll", () => {
+    const nearBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 40;
+    if (nearBottom) loadMoreHome();
+    const shouldShow = content.scrollTop > 80;
+    const isShown = topBtn.style.display === "flex";
+    if (shouldShow !== isShown) {
+      topBtn.style.display = shouldShow ? "flex" : "none";
+      refreshFocusables();
+    }
+  });
+  topBtn.addEventListener("click", () => content.scrollTo({ top: 0, behavior: "smooth" }));
 }
 
 async function loadShorts() {
@@ -796,6 +850,66 @@ function navTo(dest) {
   }
   if (dest === "history") { showScreen("history"); loadHistory(); return; }
   if (dest === "history-back") { showScreen("history"); return; }
+  if (dest === "return") { returnFromWatch(); return; }
+}
+
+// Captures enough to put the person back exactly where they were —
+// which tab or search results, and how far they'd scrolled.
+function captureCurrentContext() {
+  if (state.screen === "home") {
+    return {
+      screen: "home",
+      mode: state.homeCache?.mode || "tab",
+      tab: state.currentTab,
+      query: state.homeCache?.query || null,
+      scrollTop: document.getElementById("home-content").scrollTop,
+    };
+  }
+  if (state.screen === "history") {
+    return { screen: "history", scrollTop: document.getElementById("history-content").scrollTop };
+  }
+  if (state.screen === "subs") {
+    return { screen: "subs", scrollTop: document.getElementById("subs-content").scrollTop };
+  }
+  return { screen: "home", mode: "tab", tab: state.currentTab };
+}
+
+function returnFromWatch() {
+  stopPlayer();
+  const ctx = state.returnContext || { screen: "home", mode: "tab", tab: state.currentTab };
+
+  if (ctx.screen === "history") {
+    showScreen("history");
+    loadHistory().then(() => {
+      document.getElementById("history-content").scrollTop = ctx.scrollTop || 0;
+    });
+    return;
+  }
+  if (ctx.screen === "subs") {
+    showScreen("subs");
+    refreshSubsScreen().then(() => {
+      document.getElementById("subs-content").scrollTop = ctx.scrollTop || 0;
+    });
+    return;
+  }
+
+  showScreen("home");
+  const cache = state.homeCache;
+  const sameTab = ctx.mode === "tab" && cache?.mode === "tab" && cache.tab === ctx.tab;
+  const sameSearch = ctx.mode === "search" && cache?.mode === "search" && cache.query === ctx.query;
+  if (cache && (sameTab || sameSearch)) {
+    // Exact same list they were scrolling — restore it from memory
+    // instead of re-fetching (which could reshuffle/return different results).
+    document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === cache.tab));
+    renderHomeGrid(cache.videos, false);
+    document.getElementById("home-content").scrollTop = ctx.scrollTop || 0;
+    refreshFocusables();
+  } else if (ctx.mode === "search" && ctx.query) {
+    performSearch(ctx.query);
+  } else {
+    document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === ctx.tab));
+    loadHome(ctx.tab || state.currentTab);
+  }
 }
 
 /* ---------------- Subscriptions / login ---------------- */
@@ -806,7 +920,7 @@ async function refreshSubsScreen() {
     document.getElementById("login-panel").style.display = "none";
     document.getElementById("subs-loaded").style.display = "block";
     document.getElementById("subs-subtabs").style.display = "flex";
-    loadSubsTab(state.subsSubtab);
+    await loadSubsTab(state.subsSubtab);
   } else {
     document.getElementById("login-panel").style.display = "flex";
     document.getElementById("subs-loaded").style.display = "none";
@@ -1044,6 +1158,9 @@ document.getElementById("pc-fullscreen").addEventListener("click", toggleFullscr
 document.getElementById("pc-hideui").addEventListener("click", toggleControlsHidden);
 
 async function openVideo(videoId) {
+  if (state.screen !== "watch") {
+    state.returnContext = captureCurrentContext();
+  }
   state.currentVideoId = videoId;
   showScreen("watch");
   ensurePlayer(videoId);
@@ -1432,19 +1549,23 @@ function renderQuery() {
   document.getElementById("kb-query").innerHTML = `${escapeHtml(state.searchQuery)}<span class="cursor"></span>`;
 }
 
-async function performSearch() {
-  const q = state.searchQuery.trim();
+async function performSearch(queryOverride) {
+  const q = (queryOverride || state.searchQuery).trim();
   if (!q) return;
   document.getElementById("search-label").textContent = q;
   showScreen("home");
+  document.querySelectorAll(".tab-chip").forEach((c) => c.classList.remove("active"));
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Searching…</div>`;
+  document.getElementById("home-content").scrollTop = 0;
   try {
     const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
     grid.innerHTML = "";
     data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    state.homeCache = { mode: "search", tab: null, query: q, videos: data.videos, nextPageToken: null };
   } catch (e) {
     grid.innerHTML = `<div class="empty-state">Search failed.</div>`;
+    state.homeCache = null;
   }
   refreshFocusables();
 }
@@ -1549,6 +1670,7 @@ async function syncSubscriptions() {
 /* ---------------- Init ---------------- */
 loadHome("all");
 loadShorts();
+setupHomeScrollHandling();
 refreshFocusables();
 detectRegion();
 syncSubscriptions();
