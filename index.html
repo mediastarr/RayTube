@@ -229,6 +229,46 @@
     color: var(--text-dim); flex-shrink: 0; border-radius: 8px; border: 1px solid transparent;
   }
   .back-btn.focused, .back-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Shorts screen ---------- */
+  .shorts-stage { flex: 1; position: relative; overflow: hidden; background: #000; }
+  #shorts-player-el { width: 100%; height: 100%; }
+  .shorts-overlay {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  }
+  .shorts-overlay .so-title { font-weight: 700; font-size: 11px; margin-bottom: 2px; }
+  .shorts-overlay .so-sub { color: var(--text-dim); font-size: 9px; }
+  .shorts-hint {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 14px; align-items: center;
+    color: var(--text-dim);
+  }
+  .shorts-hint svg { width: 16px; height: 16px; }
+  .shorts-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* ---------- Search keyboard screen ---------- */
+  .kb-query {
+    margin: 8px; padding: 8px 10px; border-radius: 10px; min-height: 16px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border);
+    font-size: 13px; color: var(--text);
+  }
+  .kb-query .cursor {
+    display: inline-block; width: 2px; height: 12px; background: var(--accent);
+    margin-left: 1px; vertical-align: middle; animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .kb-grid { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; }
+  .kb-row { display: flex; gap: 4px; justify-content: center; }
+  .kb-key {
+    flex: 1; max-width: 38px; height: 30px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.07); border: 1px solid transparent; border-radius: 6px;
+    font-size: 11px; color: var(--text); text-transform: uppercase;
+  }
+  .kb-key.wide { max-width: 100px; flex: 2; text-transform: none; }
+  .kb-key.focused, .kb-key:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .kb-key.accent { background: var(--accent); color: #001417; font-weight: 700; }
+  .kb-key.accent.focused, .kb-key.accent:focus { border-color: #fff; }
 </style>
 </head>
 <body>
@@ -370,6 +410,36 @@
     </div>
   </div>
 
+  <!-- ============ SHORTS SCREEN ============ -->
+  <div class="screen" id="screen-shorts">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">Shorts</div>
+    </div>
+    <div class="shorts-stage" id="shorts-stage">
+      <div id="shorts-player-el"></div>
+      <div class="shorts-overlay">
+        <div class="so-title" id="short-title"></div>
+        <div class="so-sub" id="short-sub"></div>
+      </div>
+      <div class="shorts-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </div>
+      <div class="shorts-loading" id="shorts-loading" style="display:none;"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ SEARCH KEYBOARD SCREEN ============ -->
+  <div class="screen" id="screen-keyboard">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Cancel</div>
+      <div class="brand" style="margin-left:4px;">Search</div>
+    </div>
+    <div class="kb-query" id="kb-query"><span class="cursor"></span></div>
+    <div class="kb-grid" id="kb-grid"></div>
+  </div>
+
   <div class="toast" id="toast"></div>
 </div>
 
@@ -424,34 +494,69 @@ function showScreen(name) {
 ------------------------------------------------------------------- */
 function refreshFocusables() {
   const activeScreen = document.querySelector(".screen.active");
+  const prevEl = state.focusables[state.focusIndex] || null;
   state.focusables = Array.from(activeScreen.querySelectorAll('[tabindex="0"]')).filter(
     (el) => el.offsetParent !== null
   );
-  state.focusIndex = 0;
   state.focusables.forEach((el) => el.classList.remove("focused"));
-  if (state.focusables[0]) {
-    state.focusables[0].classList.add("focused");
-    state.focusables[0].focus({ preventScroll: true });
+  let idx = prevEl ? state.focusables.indexOf(prevEl) : -1;
+  if (idx === -1) idx = 0;
+  state.focusIndex = idx;
+  const el = state.focusables[idx];
+  if (el) {
+    el.classList.add("focused");
+    el.focus({ preventScroll: true });
   }
 }
 
+// Geometric nearest-neighbor focus movement — looks at actual on-screen
+// position of every focusable element rather than DOM order, so arrow
+// keys move the way they visually look like they should (tabs row,
+// left rail, and the video grid are laid out differently but this
+// works the same way across all of them).
 function moveFocus(dir) {
   if (!state.focusables.length) return;
-  state.focusables[state.focusIndex]?.classList.remove("focused");
-  const cols = state.screen === "home" && state.focusables[state.focusIndex]?.closest("#home-grid") ? 3 : 1;
-  let next = state.focusIndex;
-  if (dir === "right") next = Math.min(state.focusIndex + 1, state.focusables.length - 1);
-  if (dir === "left") next = Math.max(state.focusIndex - 1, 0);
-  if (dir === "down") next = Math.min(state.focusIndex + cols, state.focusables.length - 1);
-  if (dir === "up") next = Math.max(state.focusIndex - cols, 0);
-  state.focusIndex = next;
-  const el = state.focusables[state.focusIndex];
+  const current = state.focusables[state.focusIndex];
+  if (!current) return;
+  const curRect = current.getBoundingClientRect();
+  const cx = curRect.left + curRect.width / 2;
+  const cy = curRect.top + curRect.height / 2;
+
+  let bestIndex = -1;
+  let bestScore = Infinity;
+  state.focusables.forEach((el, i) => {
+    if (i === state.focusIndex) return;
+    const r = el.getBoundingClientRect();
+    const ex = r.left + r.width / 2;
+    const ey = r.top + r.height / 2;
+    const dx = ex - cx;
+    const dy = ey - cy;
+    let primary, secondary;
+    if (dir === "right") { if (dx <= 4) return; primary = dx; secondary = Math.abs(dy); }
+    else if (dir === "left") { if (dx >= -4) return; primary = -dx; secondary = Math.abs(dy); }
+    else if (dir === "down") { if (dy <= 4) return; primary = dy; secondary = Math.abs(dx); }
+    else if (dir === "up") { if (dy >= -4) return; primary = -dy; secondary = Math.abs(dx); }
+    const score = primary + secondary * 2;
+    if (score < bestScore) { bestScore = score; bestIndex = i; }
+  });
+  if (bestIndex === -1) return;
+
+  current.classList.remove("focused");
+  state.focusIndex = bestIndex;
+  const el = state.focusables[bestIndex];
   el.classList.add("focused");
   el.focus({ preventScroll: true });
   el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 document.addEventListener("keydown", (e) => {
+  if (state.screen === "shorts") {
+    if (e.key === "ArrowDown") { nextShort(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { prevShort(); e.preventDefault(); }
+    else if (e.key === "Enter") { toggleShortPlayback(); e.preventDefault(); }
+    else if (e.key === "Backspace") { goBack(); }
+    return;
+  }
   switch (e.key) {
     case "ArrowUp": moveFocus("up"); e.preventDefault(); break;
     case "ArrowDown": moveFocus("down"); e.preventDefault(); break;
@@ -466,7 +571,10 @@ function goBack() {
   if (state.screen === "watch") {
     stopPlayer();
     showScreen("home");
-  } else if (state.screen === "subs") {
+  } else if (state.screen === "subs" || state.screen === "keyboard") {
+    showScreen("home");
+  } else if (state.screen === "shorts") {
+    stopShortsPlayer();
     showScreen("home");
   }
 }
@@ -545,8 +653,13 @@ document.querySelectorAll('[data-nav="home"]').forEach((el) =>
 );
 
 function navTo(dest) {
-  if (dest === "home") { showScreen("home"); return; }
-  if (dest === "shorts") { showScreen("home"); document.getElementById("home-content").scrollTo({top: 99999, behavior:"smooth"}); return; }
+  if (dest === "home") {
+    showScreen("home");
+    loadHome(state.currentTab);
+    loadShorts();
+    return;
+  }
+  if (dest === "shorts") { openShortsScreen(); return; }
   if (dest === "subscriptions") { showScreen("subs"); refreshSubsScreen(); return; }
 }
 
@@ -734,6 +847,90 @@ function playNextSuggested() {
   if (state.upNext) openVideo(state.upNext);
 }
 
+/* ---------------- Shorts full-screen player ----------------
+   No touch/swipe on the glasses, so paging is driven by
+   ArrowUp/ArrowDown (see the keydown router above). Next batch
+   loads automatically as the buffer runs low — "infinite scroll"
+   without an actual scroll gesture.
+------------------------------------------------------------- */
+state.shorts = { list: [], index: -1, nextPageToken: null, loading: false, player: null };
+
+function openShortsScreen() {
+  showScreen("shorts");
+  if (state.shorts.list.length === 0) {
+    loadShortsBatch(true);
+  } else {
+    playShortAt(state.shorts.index >= 0 ? state.shorts.index : 0);
+  }
+}
+
+async function loadShortsBatch(autoplayFirst) {
+  if (state.shorts.loading) return;
+  state.shorts.loading = true;
+  document.getElementById("shorts-loading").style.display = "flex";
+  try {
+    const qs = state.shorts.nextPageToken ? `?pageToken=${state.shorts.nextPageToken}` : "";
+    const data = await api(`/api/shorts${qs}`);
+    state.shorts.list = state.shorts.list.concat(data.shorts || []);
+    state.shorts.nextPageToken = data.nextPageToken || null;
+    if (autoplayFirst && state.shorts.index === -1 && state.shorts.list.length) {
+      playShortAt(0);
+    }
+  } catch (e) {
+    toast("Couldn't load shorts");
+  }
+  state.shorts.loading = false;
+  document.getElementById("shorts-loading").style.display = "none";
+}
+
+function ensureShortsPlayer(videoId) {
+  if (typeof YT === "undefined" || !YT.Player) {
+    setTimeout(() => ensureShortsPlayer(videoId), 200);
+    return;
+  }
+  if (state.shorts.player) {
+    state.shorts.player.loadVideoById(videoId);
+    return;
+  }
+  state.shorts.player = new YT.Player("shorts-player-el", {
+    videoId,
+    playerVars: { autoplay: 1, playsinline: 1, controls: 0, loop: 1, rel: 0 },
+    events: {
+      onReady: (e) => e.target.playVideo(),
+      onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) nextShort(); },
+    },
+  });
+}
+
+function stopShortsPlayer() {
+  try { state.shorts.player && state.shorts.player.stopVideo(); } catch (e) {}
+}
+
+function toggleShortPlayback() {
+  const p = state.shorts.player;
+  if (!p || typeof YT === "undefined") return;
+  const s = p.getPlayerState();
+  if (s === YT.PlayerState.PLAYING) p.pauseVideo(); else p.playVideo();
+}
+
+function playShortAt(i) {
+  const list = state.shorts.list;
+  if (i < 0 || i >= list.length) return;
+  state.shorts.index = i;
+  const v = list[i];
+  ensureShortsPlayer(v.id);
+  document.getElementById("short-title").textContent = v.title || "";
+  document.getElementById("short-sub").textContent =
+    `${v.channelTitle || ""}${v.viewCount ? " • " + v.viewCount + " views" : ""}${v.publishedAgo ? " • " + v.publishedAgo : ""}`;
+
+  if (list.length - i <= 3 && state.shorts.nextPageToken && !state.shorts.loading) {
+    loadShortsBatch(false);
+  }
+}
+
+function nextShort() { playShortAt(state.shorts.index + 1); }
+function prevShort() { playShortAt(state.shorts.index - 1); }
+
 document.getElementById("action-row").addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
@@ -777,18 +974,89 @@ document.getElementById("sub-btn").addEventListener("click", async () => {
   toast(nowSubscribed ? "Subscribed" : "Unsubscribed");
 });
 
-/* ---------------- Search (basic) ---------------- */
-document.getElementById("search-trigger").addEventListener("click", async () => {
-  const q = prompt("Search RayTube"); // Neural Band text entry hook goes here on-device
+/* ---------------- On-screen search keyboard ----------------
+   The glasses have no physical/OS keyboard, so search is typed via
+   an on-screen QWERTY grid navigated the same way as everything
+   else — arrow keys move focus, Enter presses the focused key.
+------------------------------------------------------------- */
+const KB_LAYERS = {
+  letters: [
+    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+    ["z", "x", "c", "v", "b", "n", "m"],
+  ],
+  numbers: [
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+    ["-", "/", ":", ";", "(", ")", "$", "&", "@"],
+    [".", ",", "?", "!", "'"],
+  ],
+};
+state.searchQuery = "";
+state.kbLayer = "letters";
+
+function buildKeyboard() {
+  const grid = document.getElementById("kb-grid");
+  grid.innerHTML = "";
+  KB_LAYERS[state.kbLayer].forEach((row) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "kb-row";
+    row.forEach((ch) => {
+      const key = document.createElement("div");
+      key.className = "kb-key";
+      key.tabIndex = 0;
+      key.textContent = ch;
+      key.addEventListener("click", () => { state.searchQuery += ch; renderQuery(); });
+      rowEl.appendChild(key);
+    });
+    grid.appendChild(rowEl);
+  });
+
+  const specialRow = document.createElement("div");
+  specialRow.className = "kb-row";
+  specialRow.innerHTML = `
+    <div class="kb-key" tabindex="0" id="kb-toggle">${state.kbLayer === "letters" ? "123" : "ABC"}</div>
+    <div class="kb-key wide" tabindex="0" id="kb-space">Space</div>
+    <div class="kb-key" tabindex="0" id="kb-back">&larr;</div>
+    <div class="kb-key wide accent" tabindex="0" id="kb-search">Search</div>`;
+  grid.appendChild(specialRow);
+
+  document.getElementById("kb-toggle").addEventListener("click", () => {
+    state.kbLayer = state.kbLayer === "letters" ? "numbers" : "letters";
+    buildKeyboard();
+  });
+  document.getElementById("kb-space").addEventListener("click", () => { state.searchQuery += " "; renderQuery(); });
+  document.getElementById("kb-back").addEventListener("click", () => { state.searchQuery = state.searchQuery.slice(0, -1); renderQuery(); });
+  document.getElementById("kb-search").addEventListener("click", () => performSearch());
+  refreshFocusables();
+}
+
+function renderQuery() {
+  document.getElementById("kb-query").innerHTML = `${escapeHtml(state.searchQuery)}<span class="cursor"></span>`;
+}
+
+async function performSearch() {
+  const q = state.searchQuery.trim();
   if (!q) return;
   document.getElementById("search-label").textContent = q;
   showScreen("home");
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Searching…</div>`;
-  const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
-  grid.innerHTML = "";
-  data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+  try {
+    const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    grid.innerHTML = "";
+    data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Search failed.</div>`;
+  }
   refreshFocusables();
+}
+
+document.getElementById("search-trigger").addEventListener("click", () => {
+  state.searchQuery = "";
+  state.kbLayer = "letters";
+  showScreen("keyboard");
+  buildKeyboard();
+  renderQuery();
 });
 
 /* ---------------- Init ---------------- */
