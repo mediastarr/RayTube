@@ -62,6 +62,10 @@
     color: var(--text-dim); cursor: pointer;
   }
   .rail-item svg { width: 20px; height: 20px; }
+  .badge-dot {
+    position: absolute; top: 4px; right: 4px; width: 8px; height: 8px;
+    border-radius: 50%; background: #ff4444; border: 1px solid #000;
+  }
   .rail-item.focused, .rail-item:focus {
     outline: none; background: rgba(0,229,255,0.12); color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent) inset;
@@ -162,6 +166,17 @@
   #screen-watch.fullscreen-mode .watch-player {
     position: absolute; inset: 0; aspect-ratio: unset; z-index: 10;
   }
+
+  .pc-quality {
+    position: absolute; left: 6px; top: 6px; z-index: 7;
+    background: rgba(0,0,0,0.55); color: var(--accent); font-size: 8px; font-weight: 700;
+    padding: 2px 6px; border-radius: 8px;
+  }
+
+  .history-progress {
+    height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-top: 3px; overflow: hidden;
+  }
+  .history-progress-fill { height: 100%; background: var(--accent); }
 
   .save-overlay {
     position: absolute; inset: 0; z-index: 20;
@@ -338,9 +353,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="4"/><path d="M10 10l5 3-5 3v-6z" fill="currentColor" stroke="none"/></svg>
           Shorts
         </div>
-        <div class="rail-item" data-nav="subscriptions" tabindex="0">
+        <div class="rail-item" data-nav="history" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          History
+        </div>
+        <div class="rail-item" data-nav="subscriptions" tabindex="0" style="position:relative;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8l8-5 8 5v8l-8 5-8-5V8z"/><path d="M10 9l5 3-5 3V9z" fill="currentColor" stroke="none"/></svg>
           Subs
+          <div class="badge-dot" id="subs-badge" style="display:none;"></div>
         </div>
       </div>
 
@@ -397,10 +417,40 @@
     </div>
   </div>
 
+  <!-- ============ HISTORY SCREEN ============ -->
+  <div class="screen" id="screen-history">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">History</div>
+      <div class="action-btn" id="taste-profile-btn" tabindex="0" style="margin-left:auto;">Taste profile</div>
+    </div>
+    <div class="content" id="history-content" style="flex:1;">
+      <div id="history-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ TASTE PROFILE SCREEN ============ -->
+  <div class="screen" id="screen-taste">
+    <div class="topbar">
+      <div class="back-btn" data-nav="history-back" tabindex="0" id="taste-back">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">Taste profile</div>
+    </div>
+    <div class="content" id="taste-content" style="flex:1; padding:10px;">
+      <div id="taste-summary" style="font-size:11px; line-height:1.5; margin-bottom:12px;"></div>
+      <div class="section-label">Top categories</div>
+      <div id="taste-categories" style="margin-bottom:10px;"></div>
+      <div class="section-label">Most-engaged channels</div>
+      <div id="taste-channels" style="margin-bottom:10px;"></div>
+      <div class="section-label">Recent searches</div>
+      <div id="taste-searches" style="font-size:10px; color:var(--text-dim);"></div>
+    </div>
+  </div>
+
   <!-- ============ WATCH SCREEN ============ -->
   <div class="screen" id="screen-watch">
     <div class="watch-player">
       <div id="ytplayer-el"></div>
+      <div class="pc-quality" id="pc-quality" style="display:none;">Auto</div>
       <div class="pc-toggle" id="pc-hideui" tabindex="0">👁</div>
       <div class="player-controls" id="player-controls">
         <div class="pc-btn" id="pc-rewind" tabindex="0">-10s</div>
@@ -639,11 +689,13 @@ function goBack() {
   if (state.screen === "watch") {
     stopPlayer();
     showScreen("home");
-  } else if (state.screen === "subs" || state.screen === "keyboard") {
+  } else if (state.screen === "subs" || state.screen === "keyboard" || state.screen === "history") {
     showScreen("home");
   } else if (state.screen === "shorts") {
     stopShortsPlayer();
     showScreen("home");
+  } else if (state.screen === "taste") {
+    showScreen("history");
   }
 }
 
@@ -653,7 +705,6 @@ function videoCard(v, cls) {
   el.className = cls;
   el.tabIndex = 0;
   el.dataset.videoId = v.id;
-  const durBadge = v.duration ? "" : ""; // duration formatting omitted (ISO8601) for brevity of badge
   el.innerHTML = `
     <div class="thumb-wrap">
       <img src="${v.thumbnail || ""}" loading="lazy" />
@@ -663,8 +714,18 @@ function videoCard(v, cls) {
       <div class="vsub">${escapeHtml(v.channelTitle || "")}</div>
       <div class="vsub">${v.viewCount ? v.viewCount + " views" : ""} ${v.publishedAgo ? "• " + v.publishedAgo : ""}</div>
     </div>`;
-  el.addEventListener("click", () => openVideo(v.id));
+  el.addEventListener("click", () => {
+    if (v.durationSeconds && v.durationSeconds <= 60) openShortFromGrid(v);
+    else openVideo(v.id);
+  });
   return el;
+}
+
+function openShortFromGrid(v) {
+  const rest = state.shorts.list.filter((s) => s.id !== v.id);
+  state.shorts.list = [v, ...rest];
+  state.shorts.index = -1;
+  openShortsScreen();
 }
 
 function escapeHtml(s) {
@@ -694,7 +755,7 @@ async function loadShorts() {
       el.className = "short-card";
       el.tabIndex = 0;
       el.innerHTML = `<img src="${v.thumbnail || ""}" loading="lazy"/><div class="stitle">${escapeHtml(v.title || "")}</div>`;
-      el.addEventListener("click", () => openVideo(v.id));
+      el.addEventListener("click", () => openShortFromGrid(v));
       row.appendChild(el);
     });
   } catch (e) { /* non-critical */ }
@@ -710,15 +771,11 @@ document.getElementById("tabs-row").addEventListener("click", (e) => {
   loadHome(state.currentTab);
 });
 
-document.getElementById("rail").addEventListener("click", (e) => {
+document.addEventListener("click", (e) => {
   const item = e.target.closest("[data-nav]");
   if (!item) return;
   navTo(item.dataset.nav);
 });
-
-document.querySelectorAll('[data-nav="home"]').forEach((el) =>
-  el.addEventListener("click", () => navTo("home"))
-);
 
 function navTo(dest) {
   if (dest === "home") {
@@ -730,7 +787,15 @@ function navTo(dest) {
     return;
   }
   if (dest === "shorts") { openShortsScreen(); return; }
-  if (dest === "subscriptions") { showScreen("subs"); refreshSubsScreen(); return; }
+  if (dest === "subscriptions") {
+    showScreen("subs");
+    refreshSubsScreen();
+    document.getElementById("subs-badge").style.display = "none";
+    fetch(API_BASE + "/api/subscriptions/mark-seen", { method: "POST" }).catch(() => {});
+    return;
+  }
+  if (dest === "history") { showScreen("history"); loadHistory(); return; }
+  if (dest === "history-back") { showScreen("history"); return; }
 }
 
 /* ---------------- Subscriptions / login ---------------- */
@@ -852,11 +917,35 @@ function ensurePlayer(videoId) {
       },
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED) playNextSuggested();
-        if (e.data === YT.PlayerState.PLAYING) setPlayPauseIcon(true);
+        if (e.data === YT.PlayerState.PLAYING) {
+          setPlayPauseIcon(true);
+          applyPendingResume();
+        }
         if (e.data === YT.PlayerState.PAUSED) setPlayPauseIcon(false);
       },
+      onPlaybackQualityChange: (e) => setQualityLabel(e.data),
     },
   });
+}
+
+// Human labels for YT's internal quality codes — this is real measured
+// quality (updates live as the player actually adapts), not a static
+// "Auto" placeholder.
+const QUALITY_LABELS = {
+  hd2160: "4K", hd1440: "1440p", hd1080: "1080p", hd720: "720p",
+  large: "480p", medium: "360p", small: "240p", tiny: "144p", auto: "Auto",
+};
+function setQualityLabel(code) {
+  const el = document.getElementById("pc-quality");
+  if (!el) return;
+  el.textContent = QUALITY_LABELS[code] || "Auto";
+  el.style.display = "block";
+}
+
+function applyPendingResume() {
+  if (!state.pendingResume) return;
+  try { state.ytPlayer.seekTo(state.pendingResume, true); } catch (e) {}
+  state.pendingResume = null;
 }
 
 // Some browsers/webviews silently block unmuted autoplay. Check back
@@ -883,7 +972,36 @@ function verifyPlayback(attempt) {
   }, 900);
 }
 
+// Save watch position every 5s while actually watching, plus once more
+// on the way out, so History/resume reflects where you actually stopped.
+function startPositionTracking() {
+  stopPositionTracking();
+  state.positionTimer = setInterval(savePosition, 5000);
+}
+function stopPositionTracking() {
+  if (state.positionTimer) clearInterval(state.positionTimer);
+  state.positionTimer = null;
+}
+function savePosition() {
+  const p = state.ytPlayer;
+  const v = state.currentVideoData;
+  if (!p || !v || typeof p.getCurrentTime !== "function") return;
+  const position = p.getCurrentTime();
+  const duration = p.getDuration ? p.getDuration() : 0;
+  if (!position) return;
+  fetch(API_BASE + "/api/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      videoId: v.id, title: v.title, channelId: v.channelId, channelTitle: v.channelTitle,
+      thumbnail: v.thumbnail, categoryId: v.categoryId, position, duration,
+    }),
+  }).catch(() => {});
+}
+
 function stopPlayer() {
+  savePosition();
+  stopPositionTracking();
   try { state.ytPlayer && state.ytPlayer.stopVideo(); } catch (e) {}
 }
 
@@ -932,6 +1050,8 @@ async function openVideo(videoId) {
   document.getElementById("screen-watch").classList.remove("fullscreen-mode", "controls-hidden");
   state.playerFullscreen = false;
   state.playerControlsHidden = false;
+  document.getElementById("pc-quality").style.display = "none";
+  startPositionTracking();
 
   document.getElementById("watch-title").textContent = "Loading…";
   document.getElementById("comments-list").innerHTML = "";
@@ -944,6 +1064,8 @@ async function openVideo(videoId) {
   ]);
 
   state.currentVideoData = video;
+  state.pendingResume = video.resumePosition || null;
+  applyPendingResume(); // in case playback already started before this resolved
   document.getElementById("watch-title").textContent = video.title || "";
   document.getElementById("watch-stats").textContent =
     `${video.viewCount || "0"} views • ${video.publishedAgo || ""}`;
@@ -1335,10 +1457,102 @@ document.getElementById("search-trigger").addEventListener("click", () => {
   renderQuery();
 });
 
+/* ---------------- History ---------------- */
+async function loadHistory() {
+  const list = document.getElementById("history-list");
+  list.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api("/api/history");
+    list.innerHTML = "";
+    if (!data.history?.length) {
+      list.innerHTML = `<div class="empty-state">No watch history yet.</div>`;
+      refreshFocusables();
+      return;
+    }
+    data.history.forEach((h) => {
+      const pct = h.duration ? Math.min(100, Math.round((h.position / h.duration) * 100)) : 0;
+      const row = document.createElement("div");
+      row.className = "list-row";
+      row.tabIndex = 0;
+      row.style.alignItems = "flex-start";
+      row.innerHTML = `
+        <img src="${h.thumbnail || ""}" style="border-radius:6px; width:44px; height:44px; object-fit:cover;"/>
+        <div style="flex:1;">
+          <div class="lr-title">${escapeHtml(h.title || "")}</div>
+          <div class="lr-sub">${escapeHtml(h.channelTitle || "")}</div>
+          <div class="history-progress"><div class="history-progress-fill" style="width:${pct}%;"></div></div>
+        </div>`;
+      row.addEventListener("click", () => openVideo(h.videoId));
+      list.appendChild(row);
+    });
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Couldn't load history.</div>`;
+  }
+  refreshFocusables();
+}
+
+/* ---------------- Taste profile ---------------- */
+document.getElementById("taste-profile-btn").addEventListener("click", async () => {
+  showScreen("taste");
+  document.getElementById("taste-summary").textContent = "Loading…";
+  try {
+    const p = await api("/api/taste-profile");
+    document.getElementById("taste-summary").textContent = p.summary;
+    document.getElementById("taste-categories").innerHTML =
+      p.topCategories.map((c) => `<div class="lr-sub" style="margin-bottom:2px;">${escapeHtml(c.name)}</div>`).join("") ||
+      `<div class="empty-state">Nothing yet.</div>`;
+    document.getElementById("taste-channels").innerHTML =
+      p.topChannels.map((c) => `<div class="lr-sub" style="margin-bottom:2px;">${escapeHtml(c.title)}</div>`).join("") ||
+      `<div class="empty-state">Nothing yet.</div>`;
+    document.getElementById("taste-searches").textContent = p.recentSearches.join(", ") || "None yet.";
+  } catch (e) {
+    document.getElementById("taste-summary").textContent = "Couldn't load taste profile.";
+  }
+  refreshFocusables();
+});
+
+/* ---------------- Region detection (GPS -> country code) ----------------
+   Per the platform's geolocation model, this is relayed through the
+   paired phone. Falls back to "US" silently if permission is denied or
+   unavailable — the Worker already defaults to "US" either way.
+------------------------------------------------------------------- */
+function detectRegion() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      fetch(API_BASE + "/api/region", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      }).catch(() => {});
+    },
+    () => { /* denied/unavailable — Worker defaults to US */ },
+    { timeout: 8000 }
+  );
+}
+
+/* ---------------- Subscription sync (new-upload badge) ----------------
+   Runs on startup and every 2 hours per the requested background cadence.
+   Also renews the WebSub push subscriptions server-side, so most new
+   uploads actually arrive within seconds rather than waiting for the
+   next 2-hour sync — this poll is the fallback, not the only mechanism.
+------------------------------------------------------------------- */
+async function syncSubscriptions() {
+  try {
+    const data = await api("/api/subscriptions/sync");
+    if (data.newCount > 0) {
+      document.getElementById("subs-badge").style.display = "block";
+    }
+  } catch (e) { /* not logged in yet, or offline — fine */ }
+}
+
 /* ---------------- Init ---------------- */
 loadHome("all");
 loadShorts();
 refreshFocusables();
+detectRegion();
+syncSubscriptions();
+setInterval(syncSubscriptions, 2 * 60 * 60 * 1000);
 </script>
 </body>
 </html>
