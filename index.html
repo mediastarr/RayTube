@@ -383,11 +383,13 @@
 
         <div class="content" id="home-content">
           <div class="grid3" id="home-grid"></div>
-          <div class="section-label">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="4"/></svg>
-            Shorts
+          <div id="shorts-section">
+            <div class="section-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="4"/></svg>
+              Shorts
+            </div>
+            <div class="shorts-row" id="shorts-row"></div>
           </div>
-          <div class="shorts-row" id="shorts-row"></div>
           <div class="empty-state" id="home-loading-more" style="display:none;">Loading more…</div>
         </div>
         <div class="scroll-top-btn" id="scroll-top-btn" tabindex="0">↑</div>
@@ -807,6 +809,8 @@ async function loadHome(tab) {
   lastHomeLoadAt = now;
 
   state.currentTab = tab;
+  document.getElementById("shorts-section").style.display = tab === "all" ? "block" : "none";
+
   const mySeq = ++homeLoadSeq;
   homeTabLoading = true;
   const grid = document.getElementById("home-grid");
@@ -1036,6 +1040,7 @@ function returnFromWatch() {
     // Exact same list they were scrolling — restore it from memory
     // instead of re-fetching (which could reshuffle/return different results).
     document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === cache.tab));
+    document.getElementById("shorts-section").style.display = sameTab && cache.tab === "all" ? "block" : "none";
     renderHomeGrid(cache.videos, false);
     refreshFocusables();
     focusMatchingVideoCard("home-grid");
@@ -1911,6 +1916,7 @@ async function performSearch(queryOverride) {
   if (!q) return;
   document.getElementById("search-label").textContent = q;
   showScreen("home");
+  document.getElementById("shorts-section").style.display = "none";
   document.querySelectorAll(".tab-chip").forEach((c) => c.classList.remove("active"));
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Searching…</div>`;
