@@ -893,22 +893,30 @@ function captureCurrentContext() {
   return { screen: "home", mode: "tab", tab: state.currentTab };
 }
 
+function restoreScroll(elId, top) {
+  // Setting scrollTop immediately after a display:none -> flex change can
+  // get silently clamped before layout has caught up. Two rAFs guarantee
+  // at least one full layout/paint cycle has happened first.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = document.getElementById(elId);
+      if (el) el.scrollTop = top || 0;
+    });
+  });
+}
+
 function returnFromWatch() {
   stopPlayer();
   const ctx = state.returnContext || { screen: "home", mode: "tab", tab: state.currentTab };
 
   if (ctx.screen === "history") {
     showScreen("history");
-    loadHistory().then(() => {
-      document.getElementById("history-content").scrollTop = ctx.scrollTop || 0;
-    });
+    loadHistory().then(() => restoreScroll("history-content", ctx.scrollTop));
     return;
   }
   if (ctx.screen === "subs") {
     showScreen("subs");
-    refreshSubsScreen().then(() => {
-      document.getElementById("subs-content").scrollTop = ctx.scrollTop || 0;
-    });
+    refreshSubsScreen().then(() => restoreScroll("subs-content", ctx.scrollTop));
     return;
   }
 
@@ -921,10 +929,10 @@ function returnFromWatch() {
     // instead of re-fetching (which could reshuffle/return different results).
     document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === cache.tab));
     renderHomeGrid(cache.videos, false);
-    document.getElementById("home-content").scrollTop = ctx.scrollTop || 0;
     refreshFocusables();
+    restoreScroll("home-content", ctx.scrollTop);
   } else if (ctx.mode === "search" && ctx.query) {
-    performSearch(ctx.query);
+    performSearch(ctx.query).then(() => restoreScroll("home-content", ctx.scrollTop));
   } else {
     document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === ctx.tab));
     loadHome(ctx.tab || state.currentTab);
@@ -1290,11 +1298,20 @@ async function openVideo(videoId) {
   document.getElementById("comments-list").innerHTML = "";
   document.getElementById("suggest-list").innerHTML = `<div class="empty-state">Loading…</div>`;
 
-  const [video, related, comments] = await Promise.all([
+  const [videoResult, relatedResult, commentsResult] = await Promise.allSettled([
     api(`/api/video?id=${videoId}`),
     api(`/api/related?id=${videoId}`),
     api(`/api/comments?id=${videoId}`),
   ]);
+
+  if (videoResult.status === "rejected") {
+    document.getElementById("watch-title").textContent = "Couldn't load this video";
+    toast("Couldn't load video — try again");
+    state.currentVideoData = null;
+    refreshFocusables();
+    return;
+  }
+  const video = videoResult.value;
 
   state.currentVideoData = video;
   state.pendingResume = video.resumePosition || null;
@@ -1313,36 +1330,49 @@ async function openVideo(videoId) {
   document.getElementById("channel-name").textContent = video.channelTitle || "";
   document.getElementById("channel-subs").textContent = video.channelSubs ? `${video.channelSubs} subscribers` : "";
 
-  document.getElementById("comments-header").textContent = comments.count ? `${comments.count} Comments` : "Comments";
   const cList = document.getElementById("comments-list");
-  cList.innerHTML = "";
-  if (comments.disabled) {
-    cList.innerHTML = `<div class="empty-state">Comments are off for this video.</div>`;
+  if (commentsResult.status === "rejected") {
+    document.getElementById("comments-header").textContent = "Comments";
+    cList.innerHTML = `<div class="empty-state">Couldn't load comments.</div>`;
   } else {
-    comments.comments.forEach((c) => {
-      const el = document.createElement("div");
-      el.className = "comment";
-      el.innerHTML = `<img src="${c.authorAvatar || ""}"/><div class="comment-body"><span class="comment-author">${escapeHtml(c.author)}</span>${escapeHtml(c.text)}<br><span style="opacity:.7">${c.publishedAgo} · ${c.likeCount} likes</span></div>`;
-      cList.appendChild(el);
-    });
+    const comments = commentsResult.value;
+    document.getElementById("comments-header").textContent = comments.count ? `${comments.count} Comments` : "Comments";
+    cList.innerHTML = "";
+    if (comments.disabled) {
+      cList.innerHTML = `<div class="empty-state">Comments are off for this video.</div>`;
+    } else {
+      comments.comments.forEach((c) => {
+        const el = document.createElement("div");
+        el.className = "comment";
+        el.innerHTML = `<img src="${c.authorAvatar || ""}"/><div class="comment-body"><span class="comment-author">${escapeHtml(c.author)}</span>${escapeHtml(c.text)}<br><span style="opacity:.7">${c.publishedAgo} · ${c.likeCount} likes</span></div>`;
+        cList.appendChild(el);
+      });
+    }
   }
 
   const sList = document.getElementById("suggest-list");
   sList.innerHTML = "";
-  (related.videos || []).forEach((v) => {
-    const el = document.createElement("div");
-    el.className = "suggest-card";
-    el.tabIndex = 0;
-    el.dataset.videoId = v.id;
-    el.innerHTML = `
-      <div class="thumb-wrap"><img src="${v.thumbnail || ""}" loading="lazy"/></div>
-      <div class="stitle">${escapeHtml(v.title || "")}</div>
-      <div class="ssub">${v.channelTitle ? escapeHtml(v.channelTitle) + " • " : ""}${v.viewCount ? v.viewCount + " views" : ""}${v.likeCount ? " • " + v.likeCount + " likes" : ""}</div>
-      <div class="ssub">${v.publishedAgo || ""}</div>`;
-    el.addEventListener("click", () => openVideo(v.id));
-    sList.appendChild(el);
-  });
-  state.upNext = (related.videos || [])[0]?.id || null;
+  if (relatedResult.status === "rejected") {
+    sList.innerHTML = `<div class="empty-state">Couldn't load suggestions.</div>`;
+    state.upNext = null;
+  } else {
+    const related = relatedResult.value;
+    (related.videos || []).forEach((v) => {
+      const el = document.createElement("div");
+      el.className = "suggest-card";
+      el.tabIndex = 0;
+      el.dataset.videoId = v.id;
+      el.innerHTML = `
+        <div class="thumb-wrap"><img src="${v.thumbnail || ""}" loading="lazy"/></div>
+        <div class="stitle">${escapeHtml(v.title || "")}</div>
+        <div class="ssub">${v.channelTitle ? escapeHtml(v.channelTitle) + " • " : ""}${v.viewCount ? v.viewCount + " views" : ""}${v.likeCount ? " • " + v.likeCount + " likes" : ""}</div>
+        <div class="ssub">${v.publishedAgo || ""}</div>`;
+      el.addEventListener("click", () => openVideo(v.id));
+      sList.appendChild(el);
+    });
+    state.upNext = (related.videos || [])[0]?.id || null;
+    if (!related.videos?.length) sList.innerHTML = `<div class="empty-state">No suggestions available.</div>`;
+  }
 
   refreshFocusables();
 }
@@ -1499,7 +1529,7 @@ document.getElementById("action-row").addEventListener("click", async (e) => {
       await fetch(API_BASE + "/api/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId }),
+        body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
       });
       state.liked = !wasLiked;
       v.likeCountRaw = Math.max(0, (v.likeCountRaw || 0) + (state.liked ? 1 : -1));
@@ -1517,9 +1547,17 @@ document.getElementById("action-row").addEventListener("click", async (e) => {
       await fetch(API_BASE + "/api/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "dislike", videoId: v.id, channelId: v.channelId }),
+        body: JSON.stringify({ action: "dislike", videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
       });
-      toast("Feedback sent");
+      // A video can only carry one rating on YouTube's side — disliking
+      // silently clears a prior like there too, so mirror that here.
+      if (state.liked) {
+        state.liked = false;
+        v.likeCountRaw = Math.max(0, (v.likeCountRaw || 0) - 1);
+        document.getElementById("like-count").textContent = `Like · ${fmtCountJS(v.likeCountRaw)}`;
+        document.querySelector('[data-action="like"]').classList.remove("active-like");
+      }
+      toast("Disliked");
     } catch (err) {
       toast("Action failed");
     }
