@@ -407,7 +407,8 @@
       <div class="subtab" data-subtab="playlists" tabindex="0">Playlists</div>
     </div>
     <div class="content" id="subs-content" style="flex:1;">
-      <div class="login-panel" id="login-panel">
+      <div class="empty-state" id="subs-checking">Checking sign-in status…</div>
+      <div class="login-panel" id="login-panel" style="display:none;">
         <svg class="g-icon" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.6H24v9h11.8c-.5 2.7-2 5-4.3 6.6v5.5h7C42.5 37.1 45.1 31.3 45.1 24.5z"/><path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-7-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.3v5.7C7.9 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.2c-.4-1.3-.7-2.7-.7-4.2s.3-2.9.7-4.2v-5.7H4.3C2.8 17.1 2 20.4 2 24s.8 6.9 2.3 9.9l7.3-5.7z"/><path fill="#EA4335" d="M24 10.7c3.2 0 6.1 1.1 8.4 3.3l6.2-6.2C34.9 4.2 29.9 2 24 2 15.3 2 7.9 6.9 4.3 14.1l7.3 5.7c1.7-5.2 6.6-9.1 12.4-9.1z"/></svg>
         <div style="font-size:14px; font-weight:700;">Sign in to see your subscriptions</div>
         <div class="hint" id="login-hint">Focus the button below to start.</div>
@@ -464,6 +465,17 @@
     </div>
     <div class="content" id="playlist-videos-content" style="flex:1;">
       <div class="grid3" id="playlist-videos-grid"></div>
+    </div>
+  </div>
+
+  <!-- ============ CHANNEL VIDEOS SCREEN ============ -->
+  <div class="screen" id="screen-channel-videos">
+    <div class="topbar">
+      <div class="back-btn" data-nav="channel-back" tabindex="0">&larr; Back</div>
+      <div class="brand" id="channel-videos-title" style="margin-left:4px;">Channel</div>
+    </div>
+    <div class="content" id="channel-videos-content" style="flex:1;">
+      <div class="grid3" id="channel-videos-grid"></div>
     </div>
   </div>
 
@@ -733,6 +745,8 @@ function goBack() {
     showScreen("history");
   } else if (state.screen === "playlist-videos") {
     showScreen("subs");
+  } else if (state.screen === "channel-videos") {
+    showScreen("subs");
   }
 }
 
@@ -782,6 +796,8 @@ let homeLoadSeq = 0;
 let lastHomeLoadKey = null;
 let lastHomeLoadAt = 0;
 
+let homeTabLoading = false;
+
 async function loadHome(tab) {
   const now = Date.now();
   if (tab === lastHomeLoadKey && now - lastHomeLoadAt < 700) {
@@ -792,6 +808,7 @@ async function loadHome(tab) {
 
   state.currentTab = tab;
   const mySeq = ++homeLoadSeq;
+  homeTabLoading = true;
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Loading videos…</div>`;
   document.getElementById("home-content").scrollTop = 0;
@@ -805,20 +822,27 @@ async function loadHome(tab) {
     grid.innerHTML = `<div class="empty-state">Couldn't load videos. Check the Worker URL/API key.</div>`;
     state.homeCache = null;
   }
+  if (mySeq === homeLoadSeq) homeTabLoading = false;
   refreshFocusables();
 }
 
 // Infinite scroll: fetches and appends the next batch once the user
 // scrolls near the bottom of the current tab's (or search's) list.
 async function loadMoreHome() {
+  if (homeTabLoading) return; // a tab switch is in progress — the grid is about to be replaced anyway
   if (!state.homeCache || !state.homeCache.nextPageToken || state.homeLoadingMore) return;
+  const seqAtStart = homeLoadSeq;
+  const cacheAtStart = state.homeCache;
   state.homeLoadingMore = true;
   document.getElementById("home-loading-more").style.display = "block";
   try {
-    const path = state.homeCache.mode === "search"
-      ? `/api/search?q=${encodeURIComponent(state.homeCache.query)}&pageToken=${state.homeCache.nextPageToken}`
-      : `/api/home?tab=${state.homeCache.tab}&pageToken=${state.homeCache.nextPageToken}`;
+    const path = cacheAtStart.mode === "search"
+      ? `/api/search?q=${encodeURIComponent(cacheAtStart.query)}&pageToken=${cacheAtStart.nextPageToken}`
+      : `/api/home?tab=${cacheAtStart.tab}&pageToken=${cacheAtStart.nextPageToken}`;
     const data = await api(path);
+    // If a different tab/search load has started since this began, this
+    // batch belongs to a list that's no longer on screen — drop it.
+    if (seqAtStart !== homeLoadSeq || state.homeCache !== cacheAtStart) return;
     const existingIds = new Set(state.homeCache.videos.map((v) => v.id));
     const newVideos = (data.videos || []).filter((v) => !existingIds.has(v.id));
     renderHomeGrid(newVideos, true);
@@ -902,6 +926,7 @@ function navTo(dest) {
   if (dest === "history") { showScreen("history"); loadHistory(); return; }
   if (dest === "history-back") { showScreen("history"); return; }
   if (dest === "playlist-back") { showScreen("subs"); return; }
+  if (dest === "channel-back") { showScreen("subs"); return; }
   if (dest === "return") { returnFromWatch(); return; }
 }
 
@@ -931,7 +956,32 @@ function captureCurrentContext() {
       scrollTop: document.getElementById("playlist-videos-content").scrollTop,
     };
   }
+  if (state.screen === "channel-videos") {
+    return {
+      screen: "channel-videos",
+      channelId: state.currentChannelId,
+      channelTitle: state.currentChannelTitle,
+      scrollTop: document.getElementById("channel-videos-content").scrollTop,
+    };
+  }
   return { screen: "home", mode: "tab", tab: state.currentTab };
+}
+
+// Re-focuses the specific video card just returned from (by id) instead of
+// letting the generic focus-restore fall back to the first focusable
+// element on the screen (which is the search bar) — the just-created DOM
+// nodes from a re-render are never reference-equal to the old ones.
+function focusMatchingVideoCard(containerId) {
+  if (!state.currentVideoId) return false;
+  const el = document.querySelector(`#${containerId} [data-video-id="${state.currentVideoId}"]`);
+  if (!el) return false;
+  const idx = state.focusables.indexOf(el);
+  if (idx === -1) return false;
+  state.focusables[state.focusIndex]?.classList.remove("focused");
+  state.focusIndex = idx;
+  el.classList.add("focused");
+  el.focus({ preventScroll: true });
+  return true;
 }
 
 function restoreScroll(elId, top) {
@@ -952,7 +1002,10 @@ function returnFromWatch() {
 
   if (ctx.screen === "history") {
     showScreen("history");
-    loadHistory().then(() => restoreScroll("history-content", ctx.scrollTop));
+    loadHistory().then(() => {
+      focusMatchingVideoCard("history-list");
+      restoreScroll("history-content", ctx.scrollTop);
+    });
     return;
   }
   if (ctx.screen === "subs") {
@@ -961,9 +1014,17 @@ function returnFromWatch() {
     return;
   }
   if (ctx.screen === "playlist-videos") {
-    openPlaylistVideos(ctx.playlistId, ctx.playlistTitle).then(() =>
-      restoreScroll("playlist-videos-content", ctx.scrollTop)
-    );
+    openPlaylistVideos(ctx.playlistId, ctx.playlistTitle).then(() => {
+      focusMatchingVideoCard("playlist-videos-grid");
+      restoreScroll("playlist-videos-content", ctx.scrollTop);
+    });
+    return;
+  }
+  if (ctx.screen === "channel-videos") {
+    openChannelVideos(ctx.channelId, ctx.channelTitle).then(() => {
+      focusMatchingVideoCard("channel-videos-grid");
+      restoreScroll("channel-videos-content", ctx.scrollTop);
+    });
     return;
   }
 
@@ -977,6 +1038,7 @@ function returnFromWatch() {
     document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === cache.tab));
     renderHomeGrid(cache.videos, false);
     refreshFocusables();
+    focusMatchingVideoCard("home-grid");
     restoreScroll("home-content", ctx.scrollTop);
   } else if (ctx.mode === "search" && ctx.query) {
     performSearch(ctx.query).then(() => restoreScroll("home-content", ctx.scrollTop));
@@ -988,17 +1050,29 @@ function returnFromWatch() {
 
 /* ---------------- Subscriptions / login ---------------- */
 async function refreshSubsScreen() {
-  const status = await api("/api/auth/status");
+  document.getElementById("subs-checking").style.display = "block";
+  document.getElementById("login-panel").style.display = "none";
+  document.getElementById("subs-loaded").style.display = "none";
+  document.getElementById("subs-subtabs").style.display = "none";
+
+  let status;
+  try {
+    status = await api("/api/auth/status");
+  } catch (e) {
+    document.getElementById("subs-checking").style.display = "none";
+    document.getElementById("login-panel").style.display = "flex";
+    document.getElementById("login-hint").textContent = "Couldn't reach the Worker — check your connection and try again.";
+    refreshFocusables();
+    return;
+  }
   state.loggedIn = status.loggedIn;
+  document.getElementById("subs-checking").style.display = "none";
   if (state.loggedIn) {
-    document.getElementById("login-panel").style.display = "none";
     document.getElementById("subs-loaded").style.display = "block";
     document.getElementById("subs-subtabs").style.display = "flex";
     await loadSubsTab(state.subsSubtab);
   } else {
     document.getElementById("login-panel").style.display = "flex";
-    document.getElementById("subs-loaded").style.display = "none";
-    document.getElementById("subs-subtabs").style.display = "none";
   }
   refreshFocusables();
 }
@@ -1062,6 +1136,7 @@ async function loadSubsTab(tab) {
       row.className = "list-row";
       row.tabIndex = 0;
       row.innerHTML = `<img src="${c.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(c.title)}</div><div class="lr-sub">Channel</div></div>`;
+      row.addEventListener("click", () => openChannelVideos(c.channelId, c.title));
       chList.appendChild(row);
     });
   } else if (tab === "playlists") {
@@ -1097,6 +1172,27 @@ async function openPlaylistVideos(id, title) {
     }
   } catch (e) {
     grid.innerHTML = `<div class="empty-state">Couldn't load this playlist.</div>`;
+  }
+  refreshFocusables();
+}
+
+async function openChannelVideos(id, title) {
+  showScreen("channel-videos");
+  state.currentChannelId = id;
+  state.currentChannelTitle = title;
+  document.getElementById("channel-videos-title").textContent = title || "Channel";
+  const grid = document.getElementById("channel-videos-grid");
+  grid.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api(`/api/channel-videos?id=${encodeURIComponent(id)}`);
+    grid.innerHTML = "";
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">No videos found for this channel.</div>`;
+    } else {
+      data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Couldn't load this channel.</div>`;
   }
   refreshFocusables();
 }
@@ -1856,6 +1952,7 @@ async function loadHistory() {
       const row = document.createElement("div");
       row.className = "list-row";
       row.tabIndex = 0;
+      row.dataset.videoId = h.videoId;
       row.style.alignItems = "flex-start";
       row.innerHTML = `
         <img src="${h.thumbnail || ""}" style="border-radius:6px; width:44px; height:44px; object-fit:cover;"/>
