@@ -442,8 +442,10 @@
           <div class="hint">Open that link on any device, enter the code, and approve access.</div>
           <div class="spinner"></div>
         </div>
+        <div class="hint" id="clear-token-link" tabindex="0" style="margin-top:10px; text-decoration:underline; cursor:pointer;">Having trouble? Clear stored login</div>
       </div>
       <div id="subs-loaded" style="display:none;">
+        <div class="action-btn" id="subs-logout-btn" tabindex="0" style="margin:8px;">Log out</div>
         <div class="grid3" id="subs-feed-grid"></div>
         <div id="subs-channels-list" style="display:none;"></div>
         <div id="subs-playlists-list" style="display:none;"></div>
@@ -665,7 +667,11 @@ function toast(msg) {
 
 async function api(path, opts) {
   const res = await fetch(API_BASE + path, { cache: "no-store", ...(opts || {}) });
-  if (!res.ok && res.status !== 401) throw new Error("api error " + path);
+  if (!res.ok && res.status !== 401) {
+    let detail = "";
+    try { detail = (await res.json()).error || ""; } catch (e) {}
+    throw new Error(detail || `api error ${res.status} ${path}`);
+  }
   return res.json();
 }
 
@@ -854,11 +860,16 @@ async function loadHome(tab) {
   try {
     const data = await api(`/api/home?tab=${tab}`);
     if (mySeq !== homeLoadSeq) return; // a newer load has since started — drop this stale response
-    renderHomeGrid(data.videos, false);
-    state.homeCache = { mode: "tab", tab, query: null, videos: data.videos, nextPageToken: data.nextPageToken || null };
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">No videos found for this tab right now — try again in a bit.</div>`;
+      state.homeCache = { mode: "tab", tab, query: null, videos: [], nextPageToken: data.nextPageToken || null };
+    } else {
+      renderHomeGrid(data.videos, false);
+      state.homeCache = { mode: "tab", tab, query: null, videos: data.videos, nextPageToken: data.nextPageToken || null };
+    }
   } catch (e) {
     if (mySeq !== homeLoadSeq) return;
-    grid.innerHTML = `<div class="empty-state">Couldn't load videos. Check the Worker URL/API key.</div>`;
+    grid.innerHTML = `<div class="empty-state">Couldn't load videos.<br>${escapeHtml(e.message || "")}</div>`;
     state.homeCache = null;
   }
   if (mySeq === homeLoadSeq) homeTabLoading = false;
@@ -1119,7 +1130,16 @@ async function refreshSubsScreen() {
 
 document.getElementById("login-start-btn").addEventListener("click", async () => {
   document.getElementById("login-hint").textContent = "Requesting a code…";
-  const data = await api("/api/auth/device/start");
+  let data;
+  try {
+    data = await api("/api/auth/device/start");
+    if (data.error) throw new Error(data.error);
+  } catch (e) {
+    document.getElementById("login-hint").textContent =
+      `Couldn't start sign-in (${e.message || "unknown error"}) — tap to retry.`;
+    toast("Sign-in failed — check the Worker's Google client ID/secret");
+    return;
+  }
   document.getElementById("verify-url").textContent = data.verification_url.replace(/^https?:\/\//, "");
   document.getElementById("device-code").textContent = data.user_code;
   document.getElementById("login-code-area").style.display = "flex";
@@ -1129,7 +1149,12 @@ document.getElementById("login-start-btn").addEventListener("click", async () =>
 
   clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
-    const poll = await api(`/api/auth/device/poll?pollId=${data.pollId}`);
+    let poll;
+    try {
+      poll = await api(`/api/auth/device/poll?pollId=${data.pollId}`);
+    } catch (e) {
+      return; // transient network hiccup — just try again on the next tick
+    }
     if (poll.status === "complete") {
       clearInterval(state.pollTimer);
       toast("Signed in");
@@ -1143,6 +1168,30 @@ document.getElementById("login-start-btn").addEventListener("click", async () =>
       document.getElementById("login-start-btn").style.display = "flex";
     }
   }, (data.interval || 5) * 1000);
+});
+
+async function clearStoredLogin() {
+  try {
+    await fetch(API_BASE + "/api/auth/logout", { method: "POST" });
+  } catch (e) { /* proceed regardless — worst case the token just expires naturally */ }
+  clearInterval(state.pollTimer);
+  state.loggedIn = false;
+  document.getElementById("login-code-area").style.display = "none";
+  document.getElementById("login-hint").style.display = "block";
+  document.getElementById("login-hint").textContent = "Focus the button below to start.";
+  document.getElementById("login-start-btn").style.display = "flex";
+}
+
+document.getElementById("subs-logout-btn").addEventListener("click", async () => {
+  await clearStoredLogin();
+  toast("Logged out");
+  refreshSubsScreen();
+});
+
+document.getElementById("clear-token-link").addEventListener("click", async () => {
+  await clearStoredLogin();
+  toast("Stored login cleared");
+  refreshSubsScreen();
 });
 
 document.getElementById("subs-subtabs").addEventListener("click", (e) => {
