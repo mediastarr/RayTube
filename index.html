@@ -456,6 +456,18 @@
     </div>
   </div>
 
+  <!-- ============ PLAYLIST VIDEOS SCREEN ============ -->
+  <div class="screen" id="screen-playlist-videos">
+    <div class="topbar">
+      <div class="back-btn" data-nav="playlist-back" tabindex="0">&larr; Back</div>
+      <div class="brand" id="playlist-title" style="margin-left:4px;">Playlist</div>
+    </div>
+    <div class="content" id="playlist-videos-content" style="flex:1;">
+      <div class="grid3" id="playlist-videos-grid"></div>
+    </div>
+  </div>
+
+
   <!-- ============ WATCH SCREEN ============ -->
   <div class="screen" id="screen-watch">
     <div class="watch-player">
@@ -719,6 +731,8 @@ function goBack() {
     showScreen("home");
   } else if (state.screen === "taste") {
     showScreen("history");
+  } else if (state.screen === "playlist-videos") {
+    showScreen("subs");
   }
 }
 
@@ -764,16 +778,30 @@ function renderHomeGrid(videos, append) {
 state.homeCache = null; // { mode: 'tab'|'search', tab, query, videos, nextPageToken }
 state.homeLoadingMore = false;
 
+let homeLoadSeq = 0;
+let lastHomeLoadKey = null;
+let lastHomeLoadAt = 0;
+
 async function loadHome(tab) {
+  const now = Date.now();
+  if (tab === lastHomeLoadKey && now - lastHomeLoadAt < 700) {
+    return; // near-duplicate call for the same tab — almost certainly a doubled tap/gesture, not a real second request
+  }
+  lastHomeLoadKey = tab;
+  lastHomeLoadAt = now;
+
   state.currentTab = tab;
+  const mySeq = ++homeLoadSeq;
   const grid = document.getElementById("home-grid");
   grid.innerHTML = `<div class="empty-state">Loading videos…</div>`;
   document.getElementById("home-content").scrollTop = 0;
   try {
     const data = await api(`/api/home?tab=${tab}`);
+    if (mySeq !== homeLoadSeq) return; // a newer load has since started — drop this stale response
     renderHomeGrid(data.videos, false);
     state.homeCache = { mode: "tab", tab, query: null, videos: data.videos, nextPageToken: data.nextPageToken || null };
   } catch (e) {
+    if (mySeq !== homeLoadSeq) return;
     grid.innerHTML = `<div class="empty-state">Couldn't load videos. Check the Worker URL/API key.</div>`;
     state.homeCache = null;
   }
@@ -818,7 +846,11 @@ function setupHomeScrollHandling() {
   topBtn.addEventListener("click", () => content.scrollTo({ top: 0, behavior: "smooth" }));
 }
 
+let lastShortsLoadAt = 0;
 async function loadShorts() {
+  const now = Date.now();
+  if (now - lastShortsLoadAt < 700) return;
+  lastShortsLoadAt = now;
   const row = document.getElementById("shorts-row");
   try {
     const data = await api("/api/shorts");
@@ -869,6 +901,7 @@ function navTo(dest) {
   }
   if (dest === "history") { showScreen("history"); loadHistory(); return; }
   if (dest === "history-back") { showScreen("history"); return; }
+  if (dest === "playlist-back") { showScreen("subs"); return; }
   if (dest === "return") { returnFromWatch(); return; }
 }
 
@@ -889,6 +922,14 @@ function captureCurrentContext() {
   }
   if (state.screen === "subs") {
     return { screen: "subs", scrollTop: document.getElementById("subs-content").scrollTop };
+  }
+  if (state.screen === "playlist-videos") {
+    return {
+      screen: "playlist-videos",
+      playlistId: state.currentPlaylistId,
+      playlistTitle: state.currentPlaylistTitle,
+      scrollTop: document.getElementById("playlist-videos-content").scrollTop,
+    };
   }
   return { screen: "home", mode: "tab", tab: state.currentTab };
 }
@@ -917,6 +958,12 @@ function returnFromWatch() {
   if (ctx.screen === "subs") {
     showScreen("subs");
     refreshSubsScreen().then(() => restoreScroll("subs-content", ctx.scrollTop));
+    return;
+  }
+  if (ctx.screen === "playlist-videos") {
+    openPlaylistVideos(ctx.playlistId, ctx.playlistTitle).then(() =>
+      restoreScroll("playlist-videos-content", ctx.scrollTop)
+    );
     return;
   }
 
@@ -1026,8 +1073,30 @@ async function loadSubsTab(tab) {
       row.className = "list-row";
       row.tabIndex = 0;
       row.innerHTML = `<img src="${p.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(p.title)}</div><div class="lr-sub">${p.itemCount} videos</div></div>`;
+      row.addEventListener("click", () => openPlaylistVideos(p.id, p.title));
       plList.appendChild(row);
     });
+  }
+  refreshFocusables();
+}
+
+async function openPlaylistVideos(id, title) {
+  showScreen("playlist-videos");
+  state.currentPlaylistId = id;
+  state.currentPlaylistTitle = title;
+  document.getElementById("playlist-title").textContent = title || "Playlist";
+  const grid = document.getElementById("playlist-videos-grid");
+  grid.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api(`/api/playlist-items?id=${encodeURIComponent(id)}`);
+    grid.innerHTML = "";
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">This playlist is empty.</div>`;
+    } else {
+      data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Couldn't load this playlist.</div>`;
   }
   refreshFocusables();
 }
