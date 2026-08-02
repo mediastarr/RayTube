@@ -584,6 +584,8 @@ const state = {
   subsSubtab: "feed",
   pollTimer: null,
   ytPlayer: null,
+  preferredQuality: null,
+  qualityReinforced: false,
   focusIndex: 0,
   focusables: [],
 };
@@ -1033,19 +1035,35 @@ function ensurePlayer(videoId) {
     setTimeout(() => ensurePlayer(videoId), 200);
     return;
   }
+  state.qualityReinforced = false;
+  const wantsQuality = state.preferredQuality && state.preferredQuality !== "default";
+
   if (state.ytPlayer) {
     try { state.ytPlayer.unMute(); } catch (e) {}
-    state.ytPlayer.loadVideoById(videoId);
+    // Object form + suggestedQuality is read at cue time, before the
+    // player makes its own adaptive guess — a stronger signal than
+    // calling setPlaybackQuality() afterward.
+    if (wantsQuality) {
+      state.ytPlayer.loadVideoById({ videoId, suggestedQuality: state.preferredQuality });
+    } else {
+      state.ytPlayer.loadVideoById(videoId);
+    }
     verifyPlayback();
     return;
   }
   state.ytPlayer = new YT.Player("ytplayer-el", {
     videoId,
-    playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+    playerVars: {
+      autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1,
+      // Undocumented but long-standing — read at cue time. Not guaranteed
+      // to keep working, but a real, useful nudge while it does.
+      ...(wantsQuality ? { vq: state.preferredQuality } : {}),
+    },
     events: {
       onReady: (e) => {
         e.target.unMute();
         e.target.playVideo();
+        if (wantsQuality) { try { e.target.setPlaybackQuality(state.preferredQuality); } catch (err) {} }
         verifyPlayback();
       },
       onStateChange: (e) => {
@@ -1053,12 +1071,25 @@ function ensurePlayer(videoId) {
         if (e.data === YT.PlayerState.PLAYING) {
           setPlayPauseIcon(true);
           applyPendingResume();
+          reinforceQualityOnce();
         }
         if (e.data === YT.PlayerState.PAUSED) setPlayPauseIcon(false);
       },
       onPlaybackQualityChange: (e) => setQualityLabel(e.data),
     },
   });
+}
+
+// Once playback actually starts (post-buffering), the adaptive algorithm
+// has settled — this is the last, strongest point to reassert a manual
+// quality choice. Guarded to fire once per video, not on every PLAYING
+// transition (pause/resume shouldn't keep re-requesting it).
+function reinforceQualityOnce() {
+  if (state.qualityReinforced) return;
+  state.qualityReinforced = true;
+  const wantsQuality = state.preferredQuality && state.preferredQuality !== "default";
+  if (!wantsQuality || !state.ytPlayer) return;
+  try { state.ytPlayer.setPlaybackQuality(state.preferredQuality); } catch (e) {}
 }
 
 // Human labels for YT's internal quality codes — this is real measured
@@ -1095,8 +1126,7 @@ function openQualityOverlay() {
     row.style.justifyContent = "center";
     row.innerHTML = `<div class="lr-title">${QUALITY_LABELS[code] || code}</div>`;
     row.addEventListener("click", () => {
-      try { p.setPlaybackQuality(code); } catch (e) {}
-      setQualityLabel(code);
+      applyQuality(p, code);
       closeQualityOverlay();
     });
     list.appendChild(row);
@@ -1111,6 +1141,29 @@ function closeQualityOverlay() {
   document.getElementById("quality-overlay").style.display = "none";
   state.activeOverlayClose = null;
   refreshFocusables();
+}
+
+// YouTube's embedded player treats setPlaybackQuality as a request, not a
+// command — it can silently keep its own adaptive choice (this is a known
+// limitation of the public IFrame API, not something we can force past).
+// Calling it twice and re-checking afterward is the most reliable pattern:
+// it sometimes only "takes" once the player has re-buffered.
+function applyQuality(p, code) {
+  state.preferredQuality = code; // carries forward to the next video's cue-time request
+  setQualityLabel(code === "default" ? "auto" : code);
+  toast(code === "default" ? "Set to Auto" : `Requesting ${QUALITY_LABELS[code] || code}…`);
+  try { p.setPlaybackQuality(code); } catch (e) {}
+  setTimeout(() => {
+    try { p.setPlaybackQuality(code); } catch (e) {}
+  }, 400);
+  setTimeout(() => {
+    let actual = "default";
+    try { actual = p.getPlaybackQuality() || "default"; } catch (e) {}
+    setQualityLabel(actual);
+    if (code !== "default" && actual !== code) {
+      toast(`YouTube kept it at ${QUALITY_LABELS[actual] || actual} — it doesn't always honor a manual choice`);
+    }
+  }, 2500);
 }
 
 document.getElementById("quality-cancel").addEventListener("click", closeQualityOverlay);
@@ -1773,8 +1826,16 @@ loadHome("all");
 loadShorts();
 setupHomeScrollHandling();
 refreshFocusables();
+async function checkAuthStatus() {
+  try {
+    const status = await api("/api/auth/status");
+    state.loggedIn = status.loggedIn;
+  } catch (e) { /* offline or Worker unreachable — stays false, harmless */ }
+}
+
 detectRegion();
 syncSubscriptions();
+checkAuthStatus();
 setInterval(syncSubscriptions, 2 * 60 * 60 * 1000);
 </script>
 </body>
