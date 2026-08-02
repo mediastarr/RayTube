@@ -291,20 +291,41 @@
   .back-btn.focused, .back-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
 
   /* ---------- Shorts screen ---------- */
+  #screen-shorts { padding: 0; }
   .shorts-stage { flex: 1; position: relative; overflow: hidden; background: #000; touch-action: pan-x; }
   #shorts-player-el { width: 100%; height: 100%; }
+  #shorts-player-el iframe { width: 100%; height: 100%; object-fit: cover; }
+
+  .shorts-topleft { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; z-index: 8; }
+  .shorts-topright { position: absolute; top: 8px; right: 8px; z-index: 8; }
+  .sc-btn {
+    width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); color: #fff; border: 1px solid transparent;
+  }
+  .sc-btn svg { width: 16px; height: 16px; }
+  .sc-btn.focused, .sc-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+
+  .shorts-actions { position: absolute; right: 8px; bottom: 76px; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 8; }
+  .sa-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: #fff; font-size: 9.5px; font-weight: 700; border: 1px solid transparent; border-radius: 12px; padding: 4px 6px;
+  }
+  .sa-btn svg { width: 24px; height: 24px; }
+  .sa-btn.active-like svg { fill: var(--accent); stroke: var(--accent); }
+  .sa-btn.focused, .sa-btn:focus { outline: none; border-color: var(--accent); }
+
   .shorts-overlay {
-    position: absolute; left: 0; right: 0; bottom: 0; padding: 10px;
+    position: absolute; left: 0; right: 46px; bottom: 0; padding: 10px;
     background: linear-gradient(transparent, rgba(0,0,0,0.85));
   }
   .shorts-overlay .so-title { font-weight: 700; font-size: 12.5px; margin-bottom: 2px; }
   .shorts-overlay .so-sub { color: var(--text-dim); font-size: 11px; }
   .shorts-hint {
-    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
     display: flex; flex-direction: column; gap: 14px; align-items: center;
-    color: var(--text-dim);
+    color: rgba(255,255,255,0.5);
   }
-  .shorts-hint svg { width: 16px; height: 16px; }
+  .shorts-hint svg { width: 14px; height: 14px; }
   .shorts-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 
   /* ---------- Search keyboard screen ---------- */
@@ -561,12 +582,30 @@
 
   <!-- ============ SHORTS SCREEN ============ -->
   <div class="screen" id="screen-shorts">
-    <div class="topbar">
-      <div class="back-btn" data-nav="home" tabindex="0">&larr; Back</div>
-      <div class="brand" style="margin-left:4px;">Shorts</div>
-    </div>
     <div class="shorts-stage" id="shorts-stage">
       <div id="shorts-player-el"></div>
+
+      <div class="shorts-topleft">
+        <div class="sc-btn" id="sc-playpause" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div class="sc-btn" id="sc-mute" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+        </div>
+      </div>
+      <div class="shorts-topright">
+        <div class="sc-btn" id="sc-back" data-nav="home" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </div>
+      </div>
+
+      <div class="shorts-actions">
+        <div class="sa-btn" id="sc-like" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <span id="short-like-count">Like</span>
+        </div>
+      </div>
+
       <div class="shorts-overlay">
         <div class="so-title" id="short-title"></div>
         <div class="so-sub" id="short-sub"></div>
@@ -711,13 +750,9 @@ document.addEventListener("keydown", (e) => {
   if (state.screen === "shorts") {
     if (e.key === "ArrowDown") { nextShort(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { prevShort(); e.preventDefault(); }
-    else if (e.key === "ArrowRight") { setShortsFocusBack(true); e.preventDefault(); }
-    else if (e.key === "ArrowLeft") { setShortsFocusBack(false); e.preventDefault(); }
-    else if (e.key === "Enter") {
-      if (state.shorts.focusBack) document.querySelector("#screen-shorts .back-btn")?.click();
-      else toggleShortPlayback();
-      e.preventDefault();
-    }
+    else if (e.key === "ArrowRight") { moveShortsControl(1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { moveShortsControl(-1); e.preventDefault(); }
+    else if (e.key === "Enter") { activateShortsControl(); e.preventDefault(); }
     else if (e.key === "Backspace") { goBack(); }
     return;
   }
@@ -1557,11 +1592,11 @@ function playNextSuggested() {
    loads automatically as the buffer runs low — "infinite scroll"
    without an actual scroll gesture.
 ------------------------------------------------------------- */
-state.shorts = { list: [], index: -1, nextPageToken: null, loading: false, player: null };
+state.shorts = { list: [], index: -1, nextPageToken: null, loading: false, player: null, controlIndex: 0, likedIds: new Set() };
 
 function openShortsScreen() {
   showScreen("shorts");
-  setShortsFocusBack(false);
+  setShortsControl(0);
   if (state.shorts.list.length === 0) {
     loadShortsBatch(true);
   } else {
@@ -1594,6 +1629,7 @@ function ensureShortsPlayer(videoId) {
     return;
   }
   if (state.shorts.player) {
+    try { state.shorts.player.unMute(); } catch (e) {}
     state.shorts.player.loadVideoById(videoId);
     return;
   }
@@ -1601,8 +1637,12 @@ function ensureShortsPlayer(videoId) {
     videoId,
     playerVars: { autoplay: 1, playsinline: 1, controls: 0, loop: 1, rel: 0 },
     events: {
-      onReady: (e) => e.target.playVideo(),
-      onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) nextShort(); },
+      onReady: (e) => { e.target.unMute(); e.target.playVideo(); setShortsPlayIcon(true); },
+      onStateChange: (e) => {
+        if (e.data === YT.PlayerState.ENDED) nextShort();
+        if (e.data === YT.PlayerState.PLAYING) setShortsPlayIcon(true);
+        if (e.data === YT.PlayerState.PAUSED) setShortsPlayIcon(false);
+      },
     },
   });
 }
@@ -1615,7 +1655,81 @@ function toggleShortPlayback() {
   const p = state.shorts.player;
   if (!p || typeof YT === "undefined") return;
   const s = p.getPlayerState();
-  if (s === YT.PlayerState.PLAYING) p.pauseVideo(); else p.playVideo();
+  if (s === YT.PlayerState.PLAYING) p.pauseVideo();
+  else { try { p.unMute(); } catch (e) {} p.playVideo(); }
+}
+
+function setShortsPlayIcon(playing) {
+  const el = document.getElementById("sc-playpause");
+  if (!el) return;
+  el.innerHTML = playing
+    ? `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+}
+
+function toggleShortMute() {
+  const p = state.shorts.player;
+  if (!p) return;
+  const muted = p.isMuted();
+  if (muted) p.unMute(); else p.mute();
+  setShortsMuteIcon(!muted);
+}
+
+function setShortsMuteIcon(muted) {
+  const el = document.getElementById("sc-mute");
+  if (!el) return;
+  el.innerHTML = muted
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>`;
+}
+
+async function toggleShortLike() {
+  const v = state.shorts.list[state.shorts.index];
+  if (!v) return;
+  if (!state.loggedIn) { toast("Sign in under Subscriptions first"); return; }
+  const alreadyLiked = state.shorts.likedIds.has(v.id);
+  const nextAction = alreadyLiked ? "unrate" : "like";
+  try {
+    await fetch(API_BASE + "/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
+    });
+    if (alreadyLiked) state.shorts.likedIds.delete(v.id); else state.shorts.likedIds.add(v.id);
+    updateShortsLikeUI(v.id);
+    toast(alreadyLiked ? "Removed like" : "Liked");
+  } catch (e) {
+    toast("Action failed");
+  }
+}
+
+function updateShortsLikeUI(videoId) {
+  const liked = state.shorts.likedIds.has(videoId);
+  const btn = document.getElementById("sc-like");
+  btn.classList.toggle("active-like", liked);
+  document.getElementById("short-like-count").textContent = liked ? "Liked" : "Like";
+}
+
+// Left/right cycle through the on-screen controls; up/down stays reserved
+// for switching between shorts. Enter activates whichever is focused.
+const SHORTS_CONTROLS = ["playpause", "mute", "like", "back"];
+function moveShortsControl(dir) {
+  const next = Math.max(0, Math.min(SHORTS_CONTROLS.length - 1, state.shorts.controlIndex + dir));
+  setShortsControl(next);
+}
+function setShortsControl(index) {
+  state.shorts.controlIndex = index;
+  const ids = { playpause: "sc-playpause", mute: "sc-mute", like: "sc-like", back: "sc-back" };
+  Object.values(ids).forEach((id) => document.getElementById(id)?.classList.remove("focused"));
+  const el = document.getElementById(ids[SHORTS_CONTROLS[index]]);
+  if (el) { el.classList.add("focused"); el.focus({ preventScroll: true }); }
+}
+function activateShortsControl() {
+  const control = SHORTS_CONTROLS[state.shorts.controlIndex];
+  if (control === "playpause") toggleShortPlayback();
+  else if (control === "mute") toggleShortMute();
+  else if (control === "like") toggleShortLike();
+  else if (control === "back") navTo("home");
 }
 
 function playShortAt(i) {
@@ -1624,6 +1738,8 @@ function playShortAt(i) {
   state.shorts.index = i;
   const v = list[i];
   ensureShortsPlayer(v.id);
+  setShortsControl(0); // reset focus to play/pause on every new short
+  updateShortsLikeUI(v.id);
   document.getElementById("short-title").textContent = v.title || "";
   document.getElementById("short-sub").textContent =
     `${v.channelTitle || ""}${v.viewCount ? " • " + v.viewCount + " views" : ""}${v.publishedAgo ? " • " + v.publishedAgo : ""}`;
@@ -1636,20 +1752,12 @@ function playShortAt(i) {
 function nextShort() { playShortAt(state.shorts.index + 1); }
 function prevShort() { playShortAt(state.shorts.index - 1); }
 
-function setShortsFocusBack(onBack) {
-  state.shorts.focusBack = onBack;
-  const backBtn = document.querySelector("#screen-shorts .back-btn");
-  if (!backBtn) return;
-  if (onBack) {
-    backBtn.classList.add("focused");
-    backBtn.focus({ preventScroll: true });
-  } else {
-    backBtn.classList.remove("focused");
-    backBtn.blur();
-  }
-}
+document.getElementById("sc-playpause").addEventListener("click", () => { setShortsControl(0); toggleShortPlayback(); });
+document.getElementById("sc-mute").addEventListener("click", () => { setShortsControl(1); toggleShortMute(); });
+document.getElementById("sc-like").addEventListener("click", () => { setShortsControl(2); toggleShortLike(); });
 
-// Swipe right (pan-x gesture) exits back to Home, same as pressing Backspace
+// Swipe left/right moves between controls (matching arrow-key behavior);
+// swipe up/down still switches shorts via the existing keydown path.
 (function setupShortsSwipe() {
   const stage = document.getElementById("shorts-stage");
   let startX = null, startY = null;
@@ -1659,13 +1767,8 @@ function setShortsFocusBack(onBack) {
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     startX = null;
-    if (dx > 60 && Math.abs(dy) < 40) {
-      const backBtn = document.querySelector("#screen-shorts .back-btn");
-      if (backBtn) {
-        backBtn.classList.add("focused");
-        backBtn.focus({ preventScroll: true });
-        backBtn.click();
-      }
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 40) {
+      moveShortsControl(dx > 0 ? 1 : -1);
     }
   });
 })();
