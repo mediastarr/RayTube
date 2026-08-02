@@ -162,6 +162,25 @@
   #screen-watch.fullscreen-mode .watch-player {
     position: absolute; inset: 0; aspect-ratio: unset; z-index: 10;
   }
+
+  .save-overlay {
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .save-panel {
+    width: 280px; max-height: 420px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 12px; padding: 10px;
+  }
+  .save-title { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 6px; text-align: center; }
+  .save-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+  .save-cancel-btn {
+    margin-top: 8px; text-align: center; padding: 8px; border-radius: 10px;
+    background: rgba(255,255,255,0.1); color: var(--text); font-size: 11px; font-weight: 700;
+    border: 1px solid transparent;
+  }
+  .save-cancel-btn.focused, .save-cancel-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
   .watch-body { flex: 1; min-height: 0; display: flex; }
   .watch-main { flex: 1.55; min-width: 0; overflow-y: auto; padding: 8px; }
   .watch-title { font-size: 12px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
@@ -437,6 +456,14 @@
         <div id="suggest-list"></div>
       </div>
     </div>
+
+    <div class="save-overlay" id="save-overlay" style="display:none;">
+      <div class="save-panel">
+        <div class="save-title">Save to playlist</div>
+        <div class="save-list" id="save-list"></div>
+        <div class="save-cancel-btn" id="save-cancel" tabindex="0">Cancel</div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ SHORTS SCREEN ============ -->
@@ -522,9 +549,11 @@ function showScreen(name) {
    glasses' focus engine to pick them up.
 ------------------------------------------------------------------- */
 function refreshFocusables() {
-  const activeScreen = document.querySelector(".screen.active");
+  const overlay = document.getElementById("save-overlay");
+  const overlayOpen = overlay && overlay.style.display !== "none";
+  const root = overlayOpen ? overlay : document.querySelector(".screen.active");
   const prevEl = state.focusables[state.focusIndex] || null;
-  state.focusables = Array.from(activeScreen.querySelectorAll('[tabindex="0"]')).filter(
+  state.focusables = Array.from(root.querySelectorAll('[tabindex="0"]')).filter(
     (el) => el.offsetParent !== null
   );
   state.focusables.forEach((el) => el.classList.remove("focused"));
@@ -582,7 +611,13 @@ document.addEventListener("keydown", (e) => {
   if (state.screen === "shorts") {
     if (e.key === "ArrowDown") { nextShort(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { prevShort(); e.preventDefault(); }
-    else if (e.key === "Enter") { toggleShortPlayback(); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { setShortsFocusBack(true); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { setShortsFocusBack(false); e.preventDefault(); }
+    else if (e.key === "Enter") {
+      if (state.shorts.focusBack) document.querySelector("#screen-shorts .back-btn")?.click();
+      else toggleShortPlayback();
+      e.preventDefault();
+    }
     else if (e.key === "Backspace") { goBack(); }
     return;
   }
@@ -593,6 +628,7 @@ document.addEventListener("keydown", (e) => {
     case "ArrowRight": moveFocus("right"); e.preventDefault(); break;
     case "Enter": state.focusables[state.focusIndex]?.click(); e.preventDefault(); break;
     case "Backspace":
+      if (document.getElementById("save-overlay").style.display !== "none") { closeSaveOverlay(); break; }
       if (state.screen === "watch" && state.playerFullscreen) { toggleFullscreen(); break; }
       goBack();
       break;
@@ -803,12 +839,17 @@ function ensurePlayer(videoId) {
   }
   if (state.ytPlayer) {
     state.ytPlayer.loadVideoById(videoId);
+    verifyPlayback();
     return;
   }
   state.ytPlayer = new YT.Player("ytplayer-el", {
     videoId,
     playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1 },
     events: {
+      onReady: (e) => {
+        e.target.playVideo();
+        verifyPlayback();
+      },
       onStateChange: (e) => {
         if (e.data === YT.PlayerState.ENDED) playNextSuggested();
         if (e.data === YT.PlayerState.PLAYING) setPlayPauseIcon(true);
@@ -816,6 +857,30 @@ function ensurePlayer(videoId) {
       },
     },
   });
+}
+
+// Some browsers/webviews silently block unmuted autoplay. Check back
+// shortly after starting a video; if it never actually started, retry,
+// and if it's still blocked, fall back to muted playback (which is
+// essentially always allowed) rather than leaving a dead player.
+function verifyPlayback(attempt) {
+  attempt = attempt || 1;
+  setTimeout(() => {
+    const p = state.ytPlayer;
+    if (!p || typeof p.getPlayerState !== "function" || typeof YT === "undefined") return;
+    const s = p.getPlayerState();
+    if (s === YT.PlayerState.PLAYING || s === YT.PlayerState.BUFFERING) return;
+    if (attempt === 1) {
+      try { p.playVideo(); } catch (e) {}
+      verifyPlayback(2);
+    } else if (attempt === 2) {
+      try {
+        p.mute();
+        p.playVideo();
+        toast("Autoplay was blocked — tap play to unmute");
+      } catch (e) {}
+    }
+  }, 900);
 }
 
 function stopPlayer() {
@@ -864,6 +929,9 @@ async function openVideo(videoId) {
   state.currentVideoId = videoId;
   showScreen("watch");
   ensurePlayer(videoId);
+  document.getElementById("screen-watch").classList.remove("fullscreen-mode", "controls-hidden");
+  state.playerFullscreen = false;
+  state.playerControlsHidden = false;
 
   document.getElementById("watch-title").textContent = "Loading…";
   document.getElementById("comments-list").innerHTML = "";
@@ -879,7 +947,12 @@ async function openVideo(videoId) {
   document.getElementById("watch-title").textContent = video.title || "";
   document.getElementById("watch-stats").textContent =
     `${video.viewCount || "0"} views • ${video.publishedAgo || ""}`;
-  document.getElementById("like-count").textContent = video.likeCount ? `Like · ${video.likeCount}` : "Like";
+
+  state.liked = video.myRating === "like";
+  const likeBtn = document.querySelector('[data-action="like"]');
+  likeBtn.classList.toggle("active-like", state.liked);
+  document.getElementById("like-count").textContent =
+    video.likeCountRaw != null ? `Like · ${fmtCountJS(video.likeCountRaw)}` : "Like";
 
   document.getElementById("channel-avatar").src = video.channelAvatar || "";
   document.getElementById("channel-name").textContent = video.channelTitle || "";
@@ -933,6 +1006,7 @@ state.shorts = { list: [], index: -1, nextPageToken: null, loading: false, playe
 
 function openShortsScreen() {
   showScreen("shorts");
+  setShortsFocusBack(false);
   if (state.shorts.list.length === 0) {
     loadShortsBatch(true);
   } else {
@@ -1007,6 +1081,19 @@ function playShortAt(i) {
 function nextShort() { playShortAt(state.shorts.index + 1); }
 function prevShort() { playShortAt(state.shorts.index - 1); }
 
+function setShortsFocusBack(onBack) {
+  state.shorts.focusBack = onBack;
+  const backBtn = document.querySelector("#screen-shorts .back-btn");
+  if (!backBtn) return;
+  if (onBack) {
+    backBtn.classList.add("focused");
+    backBtn.focus({ preventScroll: true });
+  } else {
+    backBtn.classList.remove("focused");
+    backBtn.blur();
+  }
+}
+
 // Swipe right (pan-x gesture) exits back to Home, same as pressing Backspace
 (function setupShortsSwipe() {
   const stage = document.getElementById("shorts-stage");
@@ -1028,6 +1115,14 @@ function prevShort() { playShortAt(state.shorts.index - 1); }
   });
 })();
 
+function fmtCountJS(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
 document.getElementById("action-row").addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
@@ -1035,25 +1130,109 @@ document.getElementById("action-row").addEventListener("click", async (e) => {
   const v = state.currentVideoData;
   if (!v) return;
 
-  if ((action === "like" || action === "dislike") && !state.loggedIn) {
+  if ((action === "like" || action === "dislike" || action === "save") && !state.loggedIn) {
     toast("Sign in under Subscriptions first");
     return;
   }
+
+  if (action === "save") { openSaveOverlay(); return; }
+
+  if (action === "like") {
+    const wasLiked = state.liked;
+    const nextAction = wasLiked ? "unrate" : "like";
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId }),
+      });
+      state.liked = !wasLiked;
+      v.likeCountRaw = Math.max(0, (v.likeCountRaw || 0) + (state.liked ? 1 : -1));
+      document.getElementById("like-count").textContent = `Like · ${fmtCountJS(v.likeCountRaw)}`;
+      btn.classList.toggle("active-like", state.liked);
+      toast(state.liked ? "Liked" : "Removed like");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+
+  if (action === "dislike") {
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dislike", videoId: v.id, channelId: v.channelId }),
+      });
+      toast("Feedback sent");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+
+  if (action === "not_interested" || action === "dont_recommend_channel") {
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, videoId: v.id, channelId: v.channelId }),
+      });
+      toast(action === "not_interested" ? "Won't recommend this video" : "Won't recommend this channel");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+});
+
+/* ---------------- Save to playlist ---------------- */
+async function openSaveOverlay() {
+  const overlay = document.getElementById("save-overlay");
+  const list = document.getElementById("save-list");
+  list.innerHTML = `<div class="empty-state">Loading playlists…</div>`;
+  overlay.style.display = "flex";
+  refreshFocusables();
+  try {
+    const data = await api("/api/playlists");
+    list.innerHTML = "";
+    (data.playlists || []).forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "list-row";
+      row.tabIndex = 0;
+      row.innerHTML = `<img src="${p.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(p.title)}</div><div class="lr-sub">${p.itemCount} videos</div></div>`;
+      row.addEventListener("click", () => saveToPlaylist(p.id, p.title));
+      list.appendChild(row);
+    });
+    if (!data.playlists?.length) list.innerHTML = `<div class="empty-state">No playlists yet — Save will create one.</div>`;
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Couldn't load playlists.</div>`;
+  }
+  refreshFocusables();
+}
+
+function closeSaveOverlay() {
+  document.getElementById("save-overlay").style.display = "none";
+  refreshFocusables();
+}
+
+async function saveToPlaylist(playlistId, title) {
+  const v = state.currentVideoData;
+  closeSaveOverlay();
+  if (!v) return;
   try {
     await fetch(API_BASE + "/api/action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, videoId: v.id, channelId: v.channelId }),
+      body: JSON.stringify({ action: "save", videoId: v.id, playlistId }),
     });
-    if (action === "like") { btn.classList.add("active-like"); toast("Liked"); }
-    else if (action === "dislike") toast("Feedback sent");
-    else if (action === "save") toast("Saved to RayTube playlist");
-    else if (action === "not_interested") toast("Won't recommend this video");
-    else if (action === "dont_recommend_channel") toast("Won't recommend this channel");
-  } catch (err) {
-    toast("Action failed");
+    toast(`Saved to ${title}`);
+  } catch (e) {
+    toast("Save failed");
   }
-});
+}
+
+document.getElementById("save-cancel").addEventListener("click", closeSaveOverlay);
 
 document.getElementById("sub-btn").addEventListener("click", async () => {
   const v = state.currentVideoData;
