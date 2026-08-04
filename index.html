@@ -293,8 +293,13 @@
   /* ---------- Shorts screen ---------- */
   #screen-shorts { padding: 0; }
   .shorts-stage { flex: 1; position: relative; overflow: hidden; background: #000; touch-action: pan-x; }
-  #shorts-player-el { width: 100%; height: 100%; }
-  #shorts-player-el iframe { width: 100%; height: 100%; object-fit: cover; }
+  #shorts-player-el {
+    position: absolute; top: 0; bottom: 0; left: 50%;
+    height: 100%; width: auto; aspect-ratio: 9 / 16;
+    transform: translateX(-50%);
+    background: #000;
+  }
+  #shorts-player-el iframe { width: 100%; height: 100%; display: block; }
 
   .shorts-topleft { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; z-index: 8; }
   .shorts-topright { position: absolute; top: 8px; right: 8px; z-index: 8; }
