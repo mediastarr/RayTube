@@ -452,8 +452,8 @@
       <div id="subs-loaded" style="display:none;">
         <div class="action-btn" id="subs-logout-btn" tabindex="0" style="margin:8px;">Log out</div>
         <div class="grid3" id="subs-feed-grid"></div>
-        <div id="subs-channels-list" style="display:none;"></div>
-        <div id="subs-playlists-list" style="display:none;"></div>
+        <div class="grid3" id="subs-channels-list" style="display:none;"></div>
+        <div class="grid3" id="subs-playlists-list" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -466,7 +466,7 @@
       <div class="action-btn" id="taste-profile-btn" tabindex="0" style="margin-left:auto;">Taste profile</div>
     </div>
     <div class="content" id="history-content" style="flex:1;">
-      <div id="history-list"></div>
+      <div class="grid3" id="history-list"></div>
     </div>
   </div>
 
@@ -1225,8 +1225,8 @@ async function loadSubsTab(tab) {
   const chList = document.getElementById("subs-channels-list");
   const plList = document.getElementById("subs-playlists-list");
   feedGrid.style.display = tab === "feed" ? "grid" : "none";
-  chList.style.display = tab === "channels" ? "block" : "none";
-  plList.style.display = tab === "playlists" ? "block" : "none";
+  chList.style.display = tab === "channels" ? "grid" : "none";
+  plList.style.display = tab === "playlists" ? "grid" : "none";
 
   if (tab === "feed") {
     feedGrid.innerHTML = `<div class="empty-state">Loading…</div>`;
@@ -1238,24 +1238,34 @@ async function loadSubsTab(tab) {
     const data = await api("/api/subscriptions");
     chList.innerHTML = "";
     (data.channels || []).forEach((c) => {
-      const row = document.createElement("div");
-      row.className = "list-row";
-      row.tabIndex = 0;
-      row.innerHTML = `<img src="${c.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(c.title)}</div><div class="lr-sub">Channel</div></div>`;
-      row.addEventListener("click", () => openChannelVideos(c.channelId, c.title));
-      chList.appendChild(row);
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${c.thumbnail || ""}" loading="lazy" style="object-fit:contain; background:#111;"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(c.title)}</div>
+          <div class="vsub">Channel</div>
+        </div>`;
+      card.addEventListener("click", () => openChannelVideos(c.channelId, c.title));
+      chList.appendChild(card);
     });
   } else if (tab === "playlists") {
     plList.innerHTML = `<div class="empty-state">Loading…</div>`;
     const data = await api("/api/playlists");
     plList.innerHTML = "";
     (data.playlists || []).forEach((p) => {
-      const row = document.createElement("div");
-      row.className = "list-row";
-      row.tabIndex = 0;
-      row.innerHTML = `<img src="${p.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(p.title)}</div><div class="lr-sub">${p.itemCount} videos</div></div>`;
-      row.addEventListener("click", () => openPlaylistVideos(p.id, p.title));
-      plList.appendChild(row);
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${p.thumbnail || ""}" loading="lazy" style="object-fit:contain; background:#111;"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(p.title)}</div>
+          <div class="vsub">${p.itemCount} videos</div>
+        </div>`;
+      card.addEventListener("click", () => openPlaylistVideos(p.id, p.title));
+      plList.appendChild(card);
     });
   }
   refreshFocusables();
@@ -2126,20 +2136,19 @@ async function loadHistory() {
     }
     data.history.forEach((h) => {
       const pct = h.duration ? Math.min(100, Math.round((h.position / h.duration) * 100)) : 0;
-      const row = document.createElement("div");
-      row.className = "list-row";
-      row.tabIndex = 0;
-      row.dataset.videoId = h.videoId;
-      row.style.alignItems = "flex-start";
-      row.innerHTML = `
-        <img src="${h.thumbnail || ""}" style="border-radius:6px; width:44px; height:44px; object-fit:cover;"/>
-        <div style="flex:1;">
-          <div class="lr-title">${escapeHtml(h.title || "")}</div>
-          <div class="lr-sub">${escapeHtml(h.channelTitle || "")}</div>
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.dataset.videoId = h.videoId;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${h.thumbnail || ""}" loading="lazy"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(h.title || "")}</div>
+          <div class="vsub">${escapeHtml(h.channelTitle || "")}</div>
           <div class="history-progress"><div class="history-progress-fill" style="width:${pct}%;"></div></div>
         </div>`;
-      row.addEventListener("click", () => openVideo(h.videoId));
-      list.appendChild(row);
+      card.addEventListener("click", () => openVideo(h.videoId));
+      list.appendChild(card);
     });
   } catch (e) {
     list.innerHTML = `<div class="empty-state">Couldn't load history.</div>`;
