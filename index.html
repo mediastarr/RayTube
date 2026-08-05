@@ -601,7 +601,7 @@
         </div>
       </div>
       <div class="shorts-topright">
-        <div class="sc-btn" id="sc-back" data-nav="home" tabindex="0">
+        <div class="sc-btn" id="sc-back" tabindex="0">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </div>
       </div>
@@ -787,8 +787,7 @@ function goBack() {
   } else if (state.screen === "subs" || state.screen === "keyboard" || state.screen === "history") {
     showScreen("home");
   } else if (state.screen === "shorts") {
-    stopShortsPlayer();
-    showScreen("home");
+    returnFromShorts();
   } else if (state.screen === "taste") {
     showScreen("history");
   } else if (state.screen === "playlist-videos") {
@@ -821,6 +820,10 @@ function videoCard(v, cls) {
 }
 
 function openShortFromGrid(v) {
+  if (state.screen !== "shorts") {
+    state.returnContext = captureCurrentContext();
+  }
+  state.currentVideoId = v.id;
   const rest = state.shorts.list.filter((s) => s.id !== v.id);
   state.shorts.list = [v, ...rest];
   state.shorts.index = -1;
@@ -1053,6 +1056,15 @@ function restoreScroll(elId, top) {
 
 function returnFromWatch() {
   stopPlayer();
+  restoreFromReturnContext();
+}
+
+function returnFromShorts() {
+  stopShortsPlayer();
+  restoreFromReturnContext();
+}
+
+function restoreFromReturnContext() {
   const ctx = state.returnContext || { screen: "home", mode: "tab", tab: state.currentTab };
 
   if (ctx.screen === "history") {
@@ -1783,7 +1795,7 @@ function activateShortsControl() {
   if (control === "playpause") toggleShortPlayback();
   else if (control === "mute") toggleShortMute();
   else if (control === "like") toggleShortLike();
-  else if (control === "back") navTo("home");
+  else if (control === "back") returnFromShorts();
 }
 
 function playShortAt(i) {
@@ -1791,6 +1803,7 @@ function playShortAt(i) {
   if (i < 0 || i >= list.length) return;
   state.shorts.index = i;
   const v = list[i];
+  state.currentVideoId = v.id;
   ensureShortsPlayer(v.id);
   setShortsControl(0); // reset focus to play/pause on every new short
   updateShortsLikeUI(v.id);
@@ -1809,6 +1822,7 @@ function prevShort() { playShortAt(state.shorts.index - 1); }
 document.getElementById("sc-playpause").addEventListener("click", () => { setShortsControl(0); toggleShortPlayback(); });
 document.getElementById("sc-mute").addEventListener("click", () => { setShortsControl(1); toggleShortMute(); });
 document.getElementById("sc-like").addEventListener("click", () => { setShortsControl(2); toggleShortLike(); });
+document.getElementById("sc-back").addEventListener("click", () => { setShortsControl(3); returnFromShorts(); });
 
 // Swipe left/right moves between controls (matching arrow-key behavior);
 // swipe up/down still switches shorts via the existing keydown path.
