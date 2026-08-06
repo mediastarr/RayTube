@@ -98,7 +98,7 @@
   }
 
   /* ---------- Content scroll area ---------- */
-  .content { flex: 1; overflow-y: auto; padding: 4px 8px 12px; scroll-snap-type: y proximity; }
+  .content { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
   .content::-webkit-scrollbar { width: 3px; }
   .content::-webkit-scrollbar-thumb { background: var(--accent-dim); }
 
@@ -106,7 +106,6 @@
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
   }
   .vcard {
-    scroll-snap-align: start;
     background: var(--panel); border: 1px solid transparent;
     border-radius: 8px; overflow: hidden; cursor: pointer;
   }
@@ -645,7 +644,7 @@
    RayTube — glasses frontend
    Backend base URL — point this at your deployed Worker.
    ===================================================================== */
-const API_BASE = "https://raytube-worker.mediastarr86.workers.dev";
+const API_BASE = "https://raytube-worker.YOUR-SUBDOMAIN.workers.dev";
 
 const state = {
   screen: "home",
