@@ -1,0 +1,2227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=600, height=600, initial-scale=1, user-scalable=no" />
+<title>MediaTube</title>
+<style>
+  :root {
+    --accent: #00e5ff;
+    --accent-dim: #0aa8bd;
+    --bg: #000000;
+    --panel: rgba(20, 24, 26, 0.85);
+    --panel-border: rgba(0, 229, 255, 0.25);
+    --text: #f2f8f9;
+    --text-dim: #b9cdd0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    width: 600px; height: 600px;
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+  }
+  #app { position: relative; width: 600px; height: 600px; }
+  .screen {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  .screen.active { display: flex; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--panel-border);
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 16px; color: var(--accent); }
+  .brand svg { width: 20px; height: 20px; }
+  .search-box {
+    flex: 1; display: flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px; padding: 5px 10px; font-size: 13.5px; color: var(--text-dim);
+  }
+
+  /* ---------- Left rail ---------- */
+  .layout { display: flex; flex: 1; min-height: 0; }
+  .rail {
+    width: 52px; flex-shrink: 0;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding-top: 8px;
+    border-right: 1px solid var(--panel-border);
+  }
+  .rail-item {
+    width: 46px; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 8px 0; border-radius: 10px; font-size: 11px;
+    color: var(--text-dim); cursor: pointer;
+  }
+  .rail-item svg { width: 20px; height: 20px; }
+  .badge-dot {
+    position: absolute; top: 4px; right: 4px; width: 8px; height: 8px;
+    border-radius: 50%; background: #ff4444; border: 1px solid #000;
+  }
+  .rail-item.focused, .rail-item:focus {
+    outline: none; background: rgba(0,229,255,0.12); color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
+  .scroll-top-btn {
+    position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: #001417; display: none; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; z-index: 20; border: 1px solid transparent;
+  }
+  .scroll-top-btn.focused, .scroll-top-btn:focus { outline: none; border-color: #fff; }
+
+  /* ---------- Tabs ---------- */
+  .tabs {
+    display: flex; gap: 6px; padding: 8px 8px 6px;
+    overflow-x: auto; flex-shrink: 0;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-chip {
+    flex-shrink: 0; padding: 5px 12px; border-radius: 12px;
+    font-size: 12.5px; white-space: nowrap;
+    background: rgba(255,255,255,0.06); color: var(--text-dim);
+    border: 1px solid transparent;
+  }
+  .tab-chip.active { background: var(--accent); color: #001417; font-weight: 700; }
+  .tab-chip.focused, .tab-chip:focus {
+    outline: none; border-color: var(--accent);
+  }
+
+  /* ---------- Content scroll area ---------- */
+  .content { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+  .content::-webkit-scrollbar { width: 3px; }
+  .content::-webkit-scrollbar-thumb { background: var(--accent-dim); }
+
+  .grid3 {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  }
+  .vcard {
+    background: var(--panel); border: 1px solid transparent;
+    border-radius: 8px; overflow: hidden; cursor: pointer;
+  }
+  .vcard.focused, .vcard:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 8px rgba(0,229,255,0.5); }
+  .vcard .thumb-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #111; }
+  .vcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .vcard .dur {
+    position: absolute; right: 3px; bottom: 3px; background: rgba(0,0,0,0.8);
+    color: #fff; font-size: 10.5px; padding: 1px 3px; border-radius: 3px;
+  }
+  .vcard .meta { padding: 5px 6px; }
+  .vcard .vtitle {
+    font-size: 12px; line-height: 1.25; font-weight: 600;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .vcard .vsub { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; }
+
+  .section-label {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 13.5px; font-weight: 700; color: var(--accent);
+    margin: 10px 0 6px;
+  }
+
+  .shorts-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .shorts-row::-webkit-scrollbar { display: none; }
+  .short-card {
+    flex-shrink: 0; width: 74px; aspect-ratio: 9/16;
+    border-radius: 10px; overflow: hidden; position: relative;
+    background: #111; border: 1px solid transparent;
+  }
+  .short-card.focused, .short-card:focus { outline: none; border-color: var(--accent); }
+  .short-card img { width: 100%; height: 100%; object-fit: cover; }
+  .short-card .stitle {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 4px;
+    font-size: 10.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  }
+
+  /* ---------- Watch screen ---------- */
+  .watch-player {
+    width: 100%; aspect-ratio: 16/9; background: #000; flex-shrink: 0; position: relative;
+  }
+  #ytplayer-el { width: 100%; height: 100%; }
+  .pc-toggle {
+    position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(0,0,0,0.55); color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; z-index: 7; border: 1px solid transparent;
+  }
+  .pc-toggle.focused, .pc-toggle:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .player-controls {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 8px 6px; background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  }
+  .pc-btn {
+    width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.16); color: #fff; font-size: 12.5px; font-weight: 700;
+    border: 1px solid transparent;
+  }
+  .pc-btn.focused, .pc-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .pc-btn.pc-quality-btn { width: auto; min-width: 44px; padding: 0 10px; border-radius: 16px; font-size: 13.5px; }
+  #screen-watch.controls-hidden .player-controls { display: none; }
+  #screen-watch.fullscreen-mode .watch-body { display: none; }
+  #screen-watch.fullscreen-mode .watch-player {
+    position: absolute; inset: 0; aspect-ratio: unset; z-index: 10;
+  }
+
+  .quality-overlay { position: absolute; inset: 0; z-index: 25; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; }
+  .quality-panel { width: 220px; max-height: 380px; overflow-y: auto; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px; padding: 10px; }
+
+  .history-progress {
+    height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-top: 3px; overflow: hidden;
+  }
+  .history-progress-fill { height: 100%; background: var(--accent); }
+
+  .save-overlay {
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .save-panel {
+    width: 280px; max-height: 420px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 12px; padding: 10px;
+  }
+  .save-title { font-size: 13.5px; font-weight: 700; color: var(--accent); margin-bottom: 6px; text-align: center; }
+  .save-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+  .save-cancel-btn {
+    margin-top: 8px; text-align: center; padding: 8px; border-radius: 10px;
+    background: rgba(255,255,255,0.1); color: var(--text); font-size: 12.5px; font-weight: 700;
+    border: 1px solid transparent;
+  }
+  .save-cancel-btn.focused, .save-cancel-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .watch-body { flex: 1; min-height: 0; display: flex; }
+  .watch-main { flex: 1.55; min-width: 0; overflow-y: auto; padding: 8px; }
+  .watch-title { font-size: 13.5px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+  .watch-stats { font-size: 11.5px; color: var(--text-dim); margin-bottom: 8px; }
+
+  .action-row { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+  .action-btn {
+    display: flex; align-items: center; gap: 4px;
+    background: rgba(255,255,255,0.07); border: 1px solid transparent;
+    border-radius: 10px; padding: 5px 8px; font-size: 11px; color: var(--text);
+    white-space: nowrap;
+  }
+  .action-btn.focused, .action-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .action-btn.active-like { background: rgba(0,229,255,0.18); color: var(--accent); }
+  .action-btn svg { width: 12px; height: 12px; }
+
+  .channel-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--panel-border); border-bottom: 1px solid var(--panel-border); margin-bottom: 8px; }
+  .channel-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #222; flex-shrink: 0; }
+  .channel-info { flex: 1; min-width: 0; }
+  .channel-name { font-size: 12px; font-weight: 700; }
+  .channel-subs { font-size: 10.5px; color: var(--text-dim); }
+  .sub-btn {
+    background: var(--accent); color: #001417; font-weight: 700; font-size: 11.5px;
+    padding: 6px 12px; border-radius: 14px; border: 1px solid transparent; flex-shrink: 0;
+  }
+  .sub-btn.subscribed { background: rgba(255,255,255,0.1); color: var(--text); }
+  .sub-btn.focused, .sub-btn:focus { outline: none; border-color: var(--accent); }
+
+  .comments-header { font-size: 12.5px; font-weight: 700; margin: 4px 0 6px; }
+  .comment { display: flex; gap: 6px; margin-bottom: 8px; }
+  .comment img { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; background: #222; }
+  .comment-body { font-size: 11px; color: var(--text-dim); }
+  .comment-author { color: var(--text); font-weight: 700; margin-right: 4px; }
+
+  .watch-suggest {
+    flex: 1; min-width: 0; overflow-y: auto; padding: 8px 8px 8px 4px;
+    border-left: 1px solid var(--panel-border);
+  }
+  .suggest-label { font-size: 11.5px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+  .suggest-card {
+    display: block; margin-bottom: 8px; border-radius: 7px; overflow: hidden;
+    border: 1px solid transparent; cursor: pointer;
+  }
+  .suggest-card.focused, .suggest-card:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 6px rgba(0,229,255,0.5); }
+  .suggest-card .thumb-wrap { position: relative; width: 100%; aspect-ratio: 16/9; background: #111; }
+  .suggest-card img { width: 100%; height: 100%; object-fit: cover; }
+  .suggest-card .dur { position: absolute; right: 2px; bottom: 2px; background: rgba(0,0,0,0.8); color: #fff; font-size: 9.5px; padding: 1px 2px; border-radius: 2px; }
+  .suggest-card .stitle { font-size: 10.5px; font-weight: 600; line-height: 1.2; padding: 3px 2px 1px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .suggest-card .ssub { font-size: 10px; color: var(--text-dim); padding: 0 2px; }
+
+  /* ---------- Subscriptions / login ---------- */
+  .login-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; }
+  .login-panel .g-icon { width: 34px; height: 34px; }
+  .device-code {
+    font-size: 22px; font-weight: 800; letter-spacing: 3px; color: var(--accent);
+    background: rgba(0,229,255,0.1); border: 1px solid var(--panel-border);
+    padding: 8px 16px; border-radius: 10px; margin: 6px 0;
+  }
+  .login-panel .verify-url { font-size: 12.5px; color: var(--text); }
+  .login-panel .hint { font-size: 11.5px; color: var(--text-dim); max-width: 380px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(0,229,255,0.25); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .subtab-row { display: flex; gap: 6px; padding: 6px 8px; flex-shrink: 0; }
+  .subtab { padding: 5px 12px; border-radius: 10px; font-size: 12px; color: var(--text-dim); background: rgba(255,255,255,0.06); }
+  .subtab.active { background: var(--accent); color: #001417; font-weight: 700; }
+  .subtab.focused, .subtab:focus { outline: none; border: 1px solid var(--accent); }
+
+  .list-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; border: 1px solid transparent; }
+  .list-row.focused, .list-row:focus { outline: none; border-color: var(--accent); background: rgba(0,229,255,0.08); }
+  .list-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: #222; }
+  .list-row .lr-title { font-size: 12px; font-weight: 600; }
+  .list-row .lr-sub { font-size: 10.5px; color: var(--text-dim); }
+
+  .toast {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,229,255,0.95); color: #001417; font-weight: 700; font-size: 12px;
+    padding: 6px 14px; border-radius: 12px; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s; z-index: 50;
+  }
+  .toast.show { opacity: 1; }
+
+  .empty-state { text-align: center; color: var(--text-dim); font-size: 12px; padding: 30px 20px; }
+
+  .back-btn {
+    display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 12px;
+    color: var(--text-dim); flex-shrink: 0; border-radius: 8px; border: 1px solid transparent;
+  }
+  .back-btn.focused, .back-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- Shorts screen ---------- */
+  #screen-shorts { padding: 0; }
+  .shorts-stage { flex: 1; position: relative; overflow: hidden; background: #000; touch-action: pan-x; }
+  #shorts-player-el {
+    position: absolute; top: 0; bottom: 0; left: 50%;
+    height: 100%; width: auto; aspect-ratio: 9 / 16;
+    transform: translateX(-50%);
+    background: #000;
+  }
+  #shorts-player-el iframe { width: 100%; height: 100%; display: block; }
+
+  .shorts-topleft { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; z-index: 8; }
+  .shorts-topright { position: absolute; top: 8px; right: 8px; z-index: 8; }
+  .sc-btn {
+    width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); color: #fff; border: 1px solid transparent;
+  }
+  .sc-btn svg { width: 16px; height: 16px; }
+  .sc-btn.focused, .sc-btn:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+
+  .shorts-actions { position: absolute; right: 8px; bottom: 76px; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 8; }
+  .sa-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: #fff; font-size: 9.5px; font-weight: 700; border: 1px solid transparent; border-radius: 12px; padding: 4px 6px;
+  }
+  .sa-btn svg { width: 24px; height: 24px; }
+  .sa-btn.active-like svg { fill: var(--accent); stroke: var(--accent); }
+  .sa-btn.focused, .sa-btn:focus { outline: none; border-color: var(--accent); }
+
+  .shorts-overlay {
+    position: absolute; left: 0; right: 46px; bottom: 0; padding: 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  }
+  .shorts-overlay .so-title { font-weight: 700; font-size: 12.5px; margin-bottom: 2px; }
+  .shorts-overlay .so-sub { color: var(--text-dim); font-size: 11px; }
+  .shorts-hint {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 14px; align-items: center;
+    color: rgba(255,255,255,0.5);
+  }
+  .shorts-hint svg { width: 14px; height: 14px; }
+  .shorts-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* ---------- Search keyboard screen ---------- */
+  .kb-query {
+    margin: 8px; padding: 8px 10px; border-radius: 10px; min-height: 16px;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border);
+    font-size: 14.5px; color: var(--text);
+  }
+  .kb-query .cursor {
+    display: inline-block; width: 2px; height: 12px; background: var(--accent);
+    margin-left: 1px; vertical-align: middle; animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .kb-grid { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; }
+  .kb-suggestions { display: none; flex-direction: column; margin: 0 8px 4px; border-radius: 8px; overflow: hidden; background: rgba(255,255,255,0.06); }
+  .kb-suggest-row { padding: 7px 10px; font-size: 12px; color: var(--text); border-top: 1px solid var(--panel-border); }
+  .kb-suggest-row:first-child { border-top: none; }
+  .kb-suggest-row.focused, .kb-suggest-row:focus { outline: none; background: rgba(0,229,255,0.12); color: var(--accent); }
+  .kb-row { display: flex; gap: 4px; justify-content: center; }
+  .kb-key {
+    flex: 1; max-width: 38px; height: 30px; display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.07); border: 1px solid transparent; border-radius: 6px;
+    font-size: 12.5px; color: var(--text); text-transform: uppercase;
+  }
+  .kb-key.wide { max-width: 100px; flex: 2; text-transform: none; }
+  .kb-key.focused, .kb-key:focus { outline: none; border-color: var(--accent); color: var(--accent); }
+  .kb-key.accent { background: var(--accent); color: #001417; font-weight: 700; }
+  .kb-key.accent.focused, .kb-key.accent:focus { border-color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ HOME SCREEN ============ -->
+  <div class="screen active" id="screen-home">
+    <div class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#00e5ff"/><path d="M9.5 8.5v7l6-3.5-6-3.5z" fill="#001417"/></svg>
+        MediaTube
+      </div>
+      <div class="search-box" id="search-trigger" tabindex="0">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <span id="search-label">Search or ask a question</span>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="rail" id="rail">
+        <div class="rail-item" data-nav="home" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+          Home
+        </div>
+        <div class="rail-item" data-nav="shorts" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="4"/><path d="M10 10l5 3-5 3v-6z" fill="currentColor" stroke="none"/></svg>
+          Shorts
+        </div>
+        <div class="rail-item" data-nav="history" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          History
+        </div>
+        <div class="rail-item" data-nav="subscriptions" tabindex="0" style="position:relative;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8l8-5 8 5v8l-8 5-8-5V8z"/><path d="M10 9l5 3-5 3V9z" fill="currentColor" stroke="none"/></svg>
+          Subs
+          <div class="badge-dot" id="subs-badge" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="tabs" id="tabs-row">
+          <div class="tab-chip active" data-tab="all" tabindex="0">All</div>
+          <div class="tab-chip" data-tab="music" tabindex="0">Music</div>
+          <div class="tab-chip" data-tab="gaming" tabindex="0">Gaming</div>
+          <div class="tab-chip" data-tab="trending" tabindex="0">Trending</div>
+          <div class="tab-chip" data-tab="movies" tabindex="0">Movies</div>
+        </div>
+
+        <div class="content" id="home-content">
+          <div class="grid3" id="home-grid"></div>
+          <div id="shorts-section" style="display:none;">
+            <div class="section-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="4"/></svg>
+              Shorts
+            </div>
+            <div class="shorts-row" id="shorts-row"></div>
+          </div>
+          <div class="empty-state" id="home-loading-more" style="display:none;">Loading more…</div>
+        </div>
+        <div class="scroll-top-btn" id="scroll-top-btn" tabindex="0">↑</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SUBSCRIPTIONS / LOGIN SCREEN ============ -->
+  <div class="screen" id="screen-subs">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">Subscriptions</div>
+    </div>
+    <div class="subtab-row" id="subs-subtabs" style="display:none;">
+      <div class="subtab active" data-subtab="feed" tabindex="0">Feed</div>
+      <div class="subtab" data-subtab="channels" tabindex="0">Channels</div>
+      <div class="subtab" data-subtab="playlists" tabindex="0">Playlists</div>
+    </div>
+    <div class="content" id="subs-content" style="flex:1;">
+      <div class="empty-state" id="subs-checking">Checking sign-in status…</div>
+      <div class="login-panel" id="login-panel" style="display:none;">
+        <svg class="g-icon" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.6H24v9h11.8c-.5 2.7-2 5-4.3 6.6v5.5h7C42.5 37.1 45.1 31.3 45.1 24.5z"/><path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-7-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.3v5.7C7.9 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.2c-.4-1.3-.7-2.7-.7-4.2s.3-2.9.7-4.2v-5.7H4.3C2.8 17.1 2 20.4 2 24s.8 6.9 2.3 9.9l7.3-5.7z"/><path fill="#EA4335" d="M24 10.7c3.2 0 6.1 1.1 8.4 3.3l6.2-6.2C34.9 4.2 29.9 2 24 2 15.3 2 7.9 6.9 4.3 14.1l7.3 5.7c1.7-5.2 6.6-9.1 12.4-9.1z"/></svg>
+        <div style="font-size:14px; font-weight:700;">Sign in to see your subscriptions</div>
+        <div class="hint" id="login-hint">Focus the button below to start.</div>
+        <div class="action-btn" id="login-start-btn" tabindex="0" style="margin-top:4px;">Sign in with Google</div>
+        <div id="login-code-area" style="display:none; flex-direction:column; align-items:center; gap:6px;">
+          <div class="verify-url" id="verify-url">google.com/device</div>
+          <div class="device-code" id="device-code">— — — —</div>
+          <div class="hint">Open that link on any device, enter the code, and approve access.</div>
+          <div class="spinner"></div>
+        </div>
+        <div class="hint" id="clear-token-link" tabindex="0" style="margin-top:10px; text-decoration:underline; cursor:pointer;">Having trouble? Clear stored login</div>
+      </div>
+      <div id="subs-loaded" style="display:none;">
+        <div class="action-btn" id="subs-logout-btn" tabindex="0" style="margin:8px;">Log out</div>
+        <div class="grid3" id="subs-feed-grid"></div>
+        <div class="grid3" id="subs-channels-list" style="display:none;"></div>
+        <div class="grid3" id="subs-playlists-list" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ HISTORY SCREEN ============ -->
+  <div class="screen" id="screen-history">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">History</div>
+      <div class="action-btn" id="taste-profile-btn" tabindex="0" style="margin-left:auto;">Taste profile</div>
+    </div>
+    <div class="content" id="history-content" style="flex:1;">
+      <div class="grid3" id="history-list"></div>
+    </div>
+  </div>
+
+  <!-- ============ TASTE PROFILE SCREEN ============ -->
+  <div class="screen" id="screen-taste">
+    <div class="topbar">
+      <div class="back-btn" data-nav="history-back" tabindex="0" id="taste-back">&larr; Back</div>
+      <div class="brand" style="margin-left:4px;">Taste profile</div>
+    </div>
+    <div class="content" id="taste-content" style="flex:1; padding:10px;">
+      <div id="taste-summary" style="font-size:13px; line-height:1.5; margin-bottom:12px;"></div>
+      <div class="section-label">Top categories</div>
+      <div id="taste-categories" style="margin-bottom:10px;"></div>
+      <div class="section-label">Most-engaged channels</div>
+      <div id="taste-channels" style="margin-bottom:10px;"></div>
+      <div class="section-label">Recent searches</div>
+      <div id="taste-searches" style="font-size:12px; color:var(--text-dim);"></div>
+    </div>
+  </div>
+
+  <!-- ============ PLAYLIST VIDEOS SCREEN ============ -->
+  <div class="screen" id="screen-playlist-videos">
+    <div class="topbar">
+      <div class="back-btn" data-nav="playlist-back" tabindex="0">&larr; Back</div>
+      <div class="brand" id="playlist-title" style="margin-left:4px;">Playlist</div>
+    </div>
+    <div class="content" id="playlist-videos-content" style="flex:1;">
+      <div class="grid3" id="playlist-videos-grid"></div>
+    </div>
+  </div>
+
+  <!-- ============ CHANNEL VIDEOS SCREEN ============ -->
+  <div class="screen" id="screen-channel-videos">
+    <div class="topbar">
+      <div class="back-btn" data-nav="channel-back" tabindex="0">&larr; Back</div>
+      <div class="brand" id="channel-videos-title" style="margin-left:4px;">Channel</div>
+    </div>
+    <div class="content" id="channel-videos-content" style="flex:1;">
+      <div class="grid3" id="channel-videos-grid"></div>
+    </div>
+  </div>
+
+
+  <!-- ============ WATCH SCREEN ============ -->
+  <div class="screen" id="screen-watch">
+    <div class="watch-player">
+      <div id="ytplayer-el"></div>
+      <div class="pc-toggle" id="pc-hideui" tabindex="0">👁</div>
+      <div class="player-controls" id="player-controls">
+        <div class="pc-btn" id="pc-rewind" tabindex="0">-10s</div>
+        <div class="pc-btn" id="pc-playpause" tabindex="0">❚❚</div>
+        <div class="pc-btn" id="pc-forward" tabindex="0">+10s</div>
+        <div class="pc-btn pc-quality-btn" id="pc-quality" tabindex="0" style="display:none;">Auto</div>
+        <div class="pc-btn" id="pc-fullscreen" tabindex="0">⛶</div>
+      </div>
+      <div class="quality-overlay" id="quality-overlay" style="display:none;">
+        <div class="quality-panel">
+          <div class="save-title">Quality</div>
+          <div class="save-list" id="quality-list"></div>
+          <div class="save-cancel-btn" id="quality-cancel" tabindex="0">Cancel</div>
+        </div>
+      </div>
+    </div>
+    <div class="watch-body">
+      <div class="watch-main" id="watch-main">
+        <div class="back-btn" data-nav="return" tabindex="0" style="margin-bottom:6px;">&larr; Back</div>
+        <div class="watch-title" id="watch-title">Loading…</div>
+        <div class="watch-stats" id="watch-stats"></div>
+
+        <div class="action-row" id="action-row">
+          <div class="action-btn" data-action="like" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 22V11M2 13v7a2 2 0 0 0 2 2h12.9a2 2 0 0 0 2-1.7l1.4-8a2 2 0 0 0-2-2.3H14V6a3 3 0 0 0-3-3l-4 7H2z"/></svg>
+            <span id="like-count">Like</span>
+          </div>
+          <div class="action-btn" data-action="dislike" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform:scaleY(-1)"><path d="M7 22V11M2 13v7a2 2 0 0 0 2 2h12.9a2 2 0 0 0 2-1.7l1.4-8a2 2 0 0 0-2-2.3H14V6a3 3 0 0 0-3-3l-4 7H2z"/></svg>
+            Dislike
+          </div>
+          <div class="action-btn" data-action="save" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+            Save
+          </div>
+          <div class="action-btn" data-action="not_interested" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M4.9 4.9l14.2 14.2"/></svg>
+            Not interested
+          </div>
+          <div class="action-btn" data-action="dont_recommend_channel" tabindex="0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 15s1.5-2 4-2 4 2 4 2"/><path d="M9 9h.01M15 9h.01"/></svg>
+            Don't recommend
+          </div>
+        </div>
+
+        <div class="channel-row">
+          <img class="channel-avatar" id="channel-avatar" src="" />
+          <div class="channel-info">
+            <div class="channel-name" id="channel-name">Channel</div>
+            <div class="channel-subs" id="channel-subs"></div>
+          </div>
+          <div class="sub-btn" id="sub-btn" tabindex="0">Subscribe</div>
+        </div>
+
+        <div class="comments-header" id="comments-header">Comments</div>
+        <div id="comments-list"></div>
+      </div>
+
+      <div class="watch-suggest" id="watch-suggest">
+        <div class="suggest-label">Up next</div>
+        <div id="suggest-list"></div>
+      </div>
+    </div>
+
+    <div class="save-overlay" id="save-overlay" style="display:none;">
+      <div class="save-panel">
+        <div class="save-title">Save to playlist</div>
+        <div class="save-list" id="save-list"></div>
+        <div class="save-cancel-btn" id="save-cancel" tabindex="0">Cancel</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SHORTS SCREEN ============ -->
+  <div class="screen" id="screen-shorts">
+    <div class="shorts-stage" id="shorts-stage">
+      <div id="shorts-player-el"></div>
+
+      <div class="shorts-topleft">
+        <div class="sc-btn" id="sc-playpause" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+        <div class="sc-btn" id="sc-mute" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+        </div>
+      </div>
+      <div class="shorts-topright">
+        <div class="sc-btn" id="sc-back" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </div>
+      </div>
+
+      <div class="shorts-actions">
+        <div class="sa-btn" id="sc-like" tabindex="0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <span id="short-like-count">Like</span>
+        </div>
+      </div>
+
+      <div class="shorts-overlay">
+        <div class="so-title" id="short-title"></div>
+        <div class="so-sub" id="short-sub"></div>
+      </div>
+      <div class="shorts-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </div>
+      <div class="shorts-loading" id="shorts-loading" style="display:none;"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- ============ SEARCH KEYBOARD SCREEN ============ -->
+  <div class="screen" id="screen-keyboard">
+    <div class="topbar">
+      <div class="back-btn" data-nav="home" tabindex="0">&larr; Cancel</div>
+      <div class="brand" style="margin-left:4px;">Search</div>
+    </div>
+    <div class="kb-query" id="kb-query"><span class="cursor"></span></div>
+    <div class="kb-suggestions" id="kb-suggestions"></div>
+    <div class="kb-grid" id="kb-grid"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+/* =====================================================================
+   MediaTube — glasses frontend
+   Backend base URL — point this at your deployed Worker.
+   ===================================================================== */
+const API_BASE = "https://raytube-worker.mediastarr86.workers.dev";
+
+const state = {
+  screen: "home",
+  currentTab: "all",
+  currentVideoId: null,
+  currentVideoData: null,
+  loggedIn: false,
+  subsSubtab: "feed",
+  pollTimer: null,
+  ytPlayer: null,
+  preferredQuality: null,
+  qualityReinforced: false,
+  focusIndex: 0,
+  focusables: [],
+};
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("show"), 1600);
+}
+
+async function api(path, opts) {
+  const res = await fetch(API_BASE + path, { cache: "no-store", ...(opts || {}) });
+  if (!res.ok && res.status !== 401) {
+    let detail = "";
+    try { detail = (await res.json()).error || ""; } catch (e) {}
+    throw new Error(detail || `api error ${res.status} ${path}`);
+  }
+  return res.json();
+}
+
+/* ---------------- Screen switching ---------------- */
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+  state.screen = name;
+  refreshFocusables();
+}
+
+/* ---------------- Neural Band / keyboard navigation ----------------
+   Ray-Ban Display glasses surface Neural Band gestures as standard
+   keydown events: ArrowUp/Down/Left/Right to move focus, Enter to
+   activate. tabindex="0" on interactive elements is required for the
+   glasses' focus engine to pick them up.
+------------------------------------------------------------------- */
+function getOpenOverlay() {
+  const candidates = [document.getElementById("save-overlay"), document.getElementById("quality-overlay")];
+  return candidates.find((o) => o && o.style.display !== "none") || null;
+}
+
+function refreshFocusables() {
+  const overlay = getOpenOverlay();
+  const root = overlay || document.querySelector(".screen.active");
+  const prevEl = state.focusables[state.focusIndex] || null;
+  state.focusables = Array.from(root.querySelectorAll('[tabindex="0"]')).filter(
+    (el) => el.offsetParent !== null
+  );
+  state.focusables.forEach((el) => el.classList.remove("focused"));
+  let idx = prevEl ? state.focusables.indexOf(prevEl) : -1;
+  if (idx === -1) idx = 0;
+  state.focusIndex = idx;
+  const el = state.focusables[idx];
+  if (el) {
+    el.classList.add("focused");
+    el.focus({ preventScroll: true });
+  }
+}
+
+// Geometric nearest-neighbor focus movement — looks at actual on-screen
+// position of every focusable element rather than DOM order, so arrow
+// keys move the way they visually look like they should (tabs row,
+// left rail, and the video grid are laid out differently but this
+// works the same way across all of them).
+function moveFocus(dir) {
+  if (!state.focusables.length) return;
+  const current = state.focusables[state.focusIndex];
+  if (!current) return;
+  const curRect = current.getBoundingClientRect();
+  const cx = curRect.left + curRect.width / 2;
+  const cy = curRect.top + curRect.height / 2;
+
+  let bestIndex = -1;
+  let bestScore = Infinity;
+  state.focusables.forEach((el, i) => {
+    if (i === state.focusIndex) return;
+    const r = el.getBoundingClientRect();
+    const ex = r.left + r.width / 2;
+    const ey = r.top + r.height / 2;
+    const dx = ex - cx;
+    const dy = ey - cy;
+    let primary, secondary;
+    if (dir === "right") { if (dx <= 4) return; primary = dx; secondary = Math.abs(dy); }
+    else if (dir === "left") { if (dx >= -4) return; primary = -dx; secondary = Math.abs(dy); }
+    else if (dir === "down") { if (dy <= 4) return; primary = dy; secondary = Math.abs(dx); }
+    else if (dir === "up") { if (dy >= -4) return; primary = -dy; secondary = Math.abs(dx); }
+    const score = primary + secondary * 2;
+    if (score < bestScore) { bestScore = score; bestIndex = i; }
+  });
+  if (bestIndex === -1) return;
+
+  current.classList.remove("focused");
+  state.focusIndex = bestIndex;
+  const el = state.focusables[bestIndex];
+  el.classList.add("focused");
+  el.focus({ preventScroll: true });
+  el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+document.addEventListener("keydown", (e) => {
+  if (state.screen === "shorts") {
+    if (e.key === "ArrowDown") { nextShort(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { prevShort(); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { moveShortsControl(1); e.preventDefault(); }
+    else if (e.key === "ArrowLeft") { moveShortsControl(-1); e.preventDefault(); }
+    else if (e.key === "Enter") { activateShortsControl(); e.preventDefault(); }
+    else if (e.key === "Backspace") { goBack(); }
+    return;
+  }
+  switch (e.key) {
+    case "ArrowUp": moveFocus("up"); e.preventDefault(); break;
+    case "ArrowDown": moveFocus("down"); e.preventDefault(); break;
+    case "ArrowLeft": moveFocus("left"); e.preventDefault(); break;
+    case "ArrowRight": moveFocus("right"); e.preventDefault(); break;
+    case "Enter": state.focusables[state.focusIndex]?.click(); e.preventDefault(); break;
+    case "Backspace":
+      if (state.activeOverlayClose) { state.activeOverlayClose(); break; }
+      if (state.screen === "watch" && state.playerFullscreen) { toggleFullscreen(); break; }
+      goBack();
+      break;
+  }
+});
+
+function goBack() {
+  if (state.screen === "watch") {
+    returnFromWatch();
+  } else if (state.screen === "subs" || state.screen === "keyboard" || state.screen === "history") {
+    showScreen("home");
+  } else if (state.screen === "shorts") {
+    returnFromShorts();
+  } else if (state.screen === "taste") {
+    showScreen("history");
+  } else if (state.screen === "playlist-videos") {
+    showScreen("subs");
+  } else if (state.screen === "channel-videos") {
+    showScreen("subs");
+  }
+}
+
+/* ---------------- Home feed ---------------- */
+function videoCard(v, cls) {
+  const el = document.createElement("div");
+  el.className = cls;
+  el.tabIndex = 0;
+  el.dataset.videoId = v.id;
+  el.innerHTML = `
+    <div class="thumb-wrap">
+      <img src="${v.thumbnail || ""}" loading="lazy" />
+    </div>
+    <div class="meta">
+      <div class="vtitle">${escapeHtml(v.title || "")}</div>
+      <div class="vsub">${escapeHtml(v.channelTitle || "")}</div>
+      <div class="vsub">${v.viewCount ? v.viewCount + " views" : ""} ${v.publishedAgo ? "• " + v.publishedAgo : ""}</div>
+    </div>`;
+  el.addEventListener("click", () => {
+    if (v.durationSeconds && v.durationSeconds <= 60) openShortFromGrid(v);
+    else openVideo(v.id);
+  });
+  return el;
+}
+
+function openShortFromGrid(v) {
+  if (state.screen !== "shorts") {
+    state.returnContext = captureCurrentContext();
+  }
+  state.currentVideoId = v.id;
+  const rest = state.shorts.list.filter((s) => s.id !== v.id);
+  state.shorts.list = [v, ...rest];
+  state.shorts.index = -1;
+  openShortsScreen();
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderHomeGrid(videos, append) {
+  const grid = document.getElementById("home-grid");
+  if (!append) grid.innerHTML = "";
+  videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+}
+
+state.homeCache = null; // { mode: 'tab'|'search', tab, query, videos, nextPageToken }
+state.homeLoadingMore = false;
+
+let homeLoadSeq = 0;
+let lastHomeLoadKey = null;
+let lastHomeLoadAt = 0;
+
+let homeTabLoading = false;
+
+async function loadHome(tab) {
+  const now = Date.now();
+  if (tab === lastHomeLoadKey && now - lastHomeLoadAt < 700) {
+    return; // near-duplicate call for the same tab — almost certainly a doubled tap/gesture, not a real second request
+  }
+  lastHomeLoadKey = tab;
+  lastHomeLoadAt = now;
+
+  state.currentTab = tab;
+
+  const mySeq = ++homeLoadSeq;
+  homeTabLoading = true;
+  const grid = document.getElementById("home-grid");
+  grid.innerHTML = `<div class="empty-state">Loading videos…</div>`;
+  document.getElementById("home-content").scrollTop = 0;
+  try {
+    const data = await api(`/api/home?tab=${tab}`);
+    if (mySeq !== homeLoadSeq) return; // a newer load has since started — drop this stale response
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">No videos found for this tab right now — try again in a bit.</div>`;
+      state.homeCache = { mode: "tab", tab, query: null, videos: [], nextPageToken: data.nextPageToken || null };
+    } else {
+      renderHomeGrid(data.videos, false);
+      state.homeCache = { mode: "tab", tab, query: null, videos: data.videos, nextPageToken: data.nextPageToken || null };
+    }
+  } catch (e) {
+    if (mySeq !== homeLoadSeq) return;
+    grid.innerHTML = `<div class="empty-state">Couldn't load videos.<br>${escapeHtml(e.message || "")}</div>`;
+    state.homeCache = null;
+  }
+  if (mySeq === homeLoadSeq) homeTabLoading = false;
+  refreshFocusables();
+}
+
+// Infinite scroll: fetches and appends the next batch once the user
+// scrolls near the bottom of the current tab's (or search's) list.
+async function loadMoreHome() {
+  if (homeTabLoading) return; // a tab switch is in progress — the grid is about to be replaced anyway
+  if (!state.homeCache || !state.homeCache.nextPageToken || state.homeLoadingMore) return;
+  const seqAtStart = homeLoadSeq;
+  const cacheAtStart = state.homeCache;
+  state.homeLoadingMore = true;
+  document.getElementById("home-loading-more").style.display = "block";
+  try {
+    const path = cacheAtStart.mode === "search"
+      ? `/api/search?q=${encodeURIComponent(cacheAtStart.query)}&pageToken=${cacheAtStart.nextPageToken}`
+      : `/api/home?tab=${cacheAtStart.tab}&pageToken=${cacheAtStart.nextPageToken}`;
+    const data = await api(path);
+    // If a different tab/search load has started since this began, this
+    // batch belongs to a list that's no longer on screen — drop it.
+    if (seqAtStart !== homeLoadSeq || state.homeCache !== cacheAtStart) return;
+    const existingIds = new Set(state.homeCache.videos.map((v) => v.id));
+    const newVideos = (data.videos || []).filter((v) => !existingIds.has(v.id));
+    renderHomeGrid(newVideos, true);
+    state.homeCache.videos = state.homeCache.videos.concat(newVideos);
+    state.homeCache.nextPageToken = data.nextPageToken || null;
+    refreshFocusables();
+  } catch (e) { /* silent — scrolling further will retry */ }
+  state.homeLoadingMore = false;
+  document.getElementById("home-loading-more").style.display = "none";
+}
+
+function setupHomeScrollHandling() {
+  const content = document.getElementById("home-content");
+  const topBtn = document.getElementById("scroll-top-btn");
+  content.addEventListener("scroll", () => {
+    const nearBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 40;
+    if (nearBottom) loadMoreHome();
+    const shouldShow = content.scrollTop > 80;
+    const isShown = topBtn.style.display === "flex";
+    if (shouldShow !== isShown) {
+      topBtn.style.display = shouldShow ? "flex" : "none";
+      refreshFocusables();
+    }
+  });
+  topBtn.addEventListener("click", () => content.scrollTo({ top: 0, behavior: "smooth" }));
+}
+
+let lastShortsLoadAt = 0;
+async function loadShorts() {
+  const now = Date.now();
+  if (now - lastShortsLoadAt < 700) return;
+  lastShortsLoadAt = now;
+  const row = document.getElementById("shorts-row");
+  try {
+    const data = await api("/api/shorts");
+    row.innerHTML = "";
+    data.shorts.forEach((v) => {
+      const el = document.createElement("div");
+      el.className = "short-card";
+      el.tabIndex = 0;
+      el.innerHTML = `<img src="${v.thumbnail || ""}" loading="lazy"/><div class="stitle">${escapeHtml(v.title || "")}</div>`;
+      el.addEventListener("click", () => openShortFromGrid(v));
+      row.appendChild(el);
+    });
+  } catch (e) { /* non-critical */ }
+  refreshFocusables();
+}
+
+document.getElementById("tabs-row").addEventListener("click", (e) => {
+  const chip = e.target.closest(".tab-chip");
+  if (!chip) return;
+  document.querySelectorAll(".tab-chip").forEach((c) => c.classList.remove("active"));
+  chip.classList.add("active");
+  state.currentTab = chip.dataset.tab;
+  loadHome(state.currentTab);
+});
+
+document.addEventListener("click", (e) => {
+  const item = e.target.closest("[data-nav]");
+  if (!item) return;
+  navTo(item.dataset.nav);
+});
+
+function navTo(dest) {
+  if (dest === "home") {
+    stopPlayer();
+    stopShortsPlayer();
+    showScreen("home");
+    loadHome(state.currentTab);
+    return;
+  }
+  if (dest === "shorts") { openShortsScreen(); return; }
+  if (dest === "subscriptions") {
+    showScreen("subs");
+    refreshSubsScreen();
+    document.getElementById("subs-badge").style.display = "none";
+    fetch(API_BASE + "/api/subscriptions/mark-seen", { method: "POST" }).catch(() => {});
+    return;
+  }
+  if (dest === "history") { showScreen("history"); loadHistory(); return; }
+  if (dest === "history-back") { showScreen("history"); return; }
+  if (dest === "playlist-back") { showScreen("subs"); return; }
+  if (dest === "channel-back") { showScreen("subs"); return; }
+  if (dest === "return") { returnFromWatch(); return; }
+}
+
+// Captures enough to put the person back exactly where they were —
+// which tab or search results, and how far they'd scrolled.
+function captureCurrentContext() {
+  if (state.screen === "home") {
+    return {
+      screen: "home",
+      mode: state.homeCache?.mode || "tab",
+      tab: state.currentTab,
+      query: state.homeCache?.query || null,
+      scrollTop: document.getElementById("home-content").scrollTop,
+    };
+  }
+  if (state.screen === "history") {
+    return { screen: "history", scrollTop: document.getElementById("history-content").scrollTop };
+  }
+  if (state.screen === "subs") {
+    return { screen: "subs", scrollTop: document.getElementById("subs-content").scrollTop };
+  }
+  if (state.screen === "playlist-videos") {
+    return {
+      screen: "playlist-videos",
+      playlistId: state.currentPlaylistId,
+      playlistTitle: state.currentPlaylistTitle,
+      scrollTop: document.getElementById("playlist-videos-content").scrollTop,
+    };
+  }
+  if (state.screen === "channel-videos") {
+    return {
+      screen: "channel-videos",
+      channelId: state.currentChannelId,
+      channelTitle: state.currentChannelTitle,
+      scrollTop: document.getElementById("channel-videos-content").scrollTop,
+    };
+  }
+  return { screen: "home", mode: "tab", tab: state.currentTab };
+}
+
+// Re-focuses the specific video card just returned from (by id) instead of
+// letting the generic focus-restore fall back to the first focusable
+// element on the screen (which is the search bar) — the just-created DOM
+// nodes from a re-render are never reference-equal to the old ones.
+function focusMatchingVideoCard(containerId) {
+  if (!state.currentVideoId) return false;
+  const el = document.querySelector(`#${containerId} [data-video-id="${state.currentVideoId}"]`);
+  if (!el) return false;
+  const idx = state.focusables.indexOf(el);
+  if (idx === -1) return false;
+  state.focusables[state.focusIndex]?.classList.remove("focused");
+  state.focusIndex = idx;
+  el.classList.add("focused");
+  el.focus({ preventScroll: true });
+  return true;
+}
+
+function restoreScroll(elId, top) {
+  // Setting scrollTop immediately after a display:none -> flex change can
+  // get silently clamped before layout has caught up. Two rAFs guarantee
+  // at least one full layout/paint cycle has happened first.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = document.getElementById(elId);
+      if (el) el.scrollTop = top || 0;
+    });
+  });
+}
+
+function returnFromWatch() {
+  stopPlayer();
+  restoreFromReturnContext();
+}
+
+function returnFromShorts() {
+  stopShortsPlayer();
+  restoreFromReturnContext();
+}
+
+function restoreFromReturnContext() {
+  const ctx = state.returnContext || { screen: "home", mode: "tab", tab: state.currentTab };
+
+  if (ctx.screen === "history") {
+    showScreen("history");
+    loadHistory().then(() => {
+      focusMatchingVideoCard("history-list");
+      restoreScroll("history-content", ctx.scrollTop);
+    });
+    return;
+  }
+  if (ctx.screen === "subs") {
+    showScreen("subs");
+    refreshSubsScreen().then(() => restoreScroll("subs-content", ctx.scrollTop));
+    return;
+  }
+  if (ctx.screen === "playlist-videos") {
+    openPlaylistVideos(ctx.playlistId, ctx.playlistTitle).then(() => {
+      focusMatchingVideoCard("playlist-videos-grid");
+      restoreScroll("playlist-videos-content", ctx.scrollTop);
+    });
+    return;
+  }
+  if (ctx.screen === "channel-videos") {
+    openChannelVideos(ctx.channelId, ctx.channelTitle).then(() => {
+      focusMatchingVideoCard("channel-videos-grid");
+      restoreScroll("channel-videos-content", ctx.scrollTop);
+    });
+    return;
+  }
+
+  showScreen("home");
+  const cache = state.homeCache;
+  const sameTab = ctx.mode === "tab" && cache?.mode === "tab" && cache.tab === ctx.tab;
+  const sameSearch = ctx.mode === "search" && cache?.mode === "search" && cache.query === ctx.query;
+  if (cache && (sameTab || sameSearch)) {
+    // Exact same list they were scrolling — restore it from memory
+    // instead of re-fetching (which could reshuffle/return different results).
+    document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === cache.tab));
+    renderHomeGrid(cache.videos, false);
+    refreshFocusables();
+    focusMatchingVideoCard("home-grid");
+    restoreScroll("home-content", ctx.scrollTop);
+  } else if (ctx.mode === "search" && ctx.query) {
+    performSearch(ctx.query).then(() => restoreScroll("home-content", ctx.scrollTop));
+  } else {
+    document.querySelectorAll(".tab-chip").forEach((c) => c.classList.toggle("active", c.dataset.tab === ctx.tab));
+    loadHome(ctx.tab || state.currentTab);
+  }
+}
+
+/* ---------------- Subscriptions / login ---------------- */
+async function refreshSubsScreen() {
+  document.getElementById("subs-checking").style.display = "block";
+  document.getElementById("login-panel").style.display = "none";
+  document.getElementById("subs-loaded").style.display = "none";
+  document.getElementById("subs-subtabs").style.display = "none";
+
+  let status;
+  try {
+    status = await api("/api/auth/status");
+  } catch (e) {
+    document.getElementById("subs-checking").style.display = "none";
+    document.getElementById("login-panel").style.display = "flex";
+    document.getElementById("login-hint").textContent = "Couldn't reach the Worker — check your connection and try again.";
+    refreshFocusables();
+    return;
+  }
+  state.loggedIn = status.loggedIn;
+  document.getElementById("subs-checking").style.display = "none";
+  if (state.loggedIn) {
+    document.getElementById("subs-loaded").style.display = "block";
+    document.getElementById("subs-subtabs").style.display = "flex";
+    await loadSubsTab(state.subsSubtab);
+  } else {
+    document.getElementById("login-panel").style.display = "flex";
+  }
+  refreshFocusables();
+}
+
+document.getElementById("login-start-btn").addEventListener("click", async () => {
+  document.getElementById("login-hint").textContent = "Requesting a code…";
+  let data;
+  try {
+    data = await api("/api/auth/device/start");
+    if (data.error) throw new Error(data.error);
+  } catch (e) {
+    document.getElementById("login-hint").textContent =
+      `Couldn't start sign-in (${e.message || "unknown error"}) — tap to retry.`;
+    toast("Sign-in failed — check the Worker's Google client ID/secret");
+    return;
+  }
+  document.getElementById("verify-url").textContent = data.verification_url.replace(/^https?:\/\//, "");
+  document.getElementById("device-code").textContent = data.user_code;
+  document.getElementById("login-code-area").style.display = "flex";
+  document.getElementById("login-hint").style.display = "none";
+  document.getElementById("login-start-btn").style.display = "none";
+  refreshFocusables();
+
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(async () => {
+    let poll;
+    try {
+      poll = await api(`/api/auth/device/poll?pollId=${data.pollId}`);
+    } catch (e) {
+      return; // transient network hiccup — just try again on the next tick
+    }
+    if (poll.status === "complete") {
+      clearInterval(state.pollTimer);
+      toast("Signed in");
+      refreshSubsScreen();
+    } else if (poll.status === "expired" || poll.status === "denied") {
+      clearInterval(state.pollTimer);
+      toast("Sign-in expired — try again");
+      document.getElementById("login-code-area").style.display = "none";
+      document.getElementById("login-hint").style.display = "block";
+      document.getElementById("login-hint").textContent = "Focus the button below to start.";
+      document.getElementById("login-start-btn").style.display = "flex";
+    }
+  }, (data.interval || 5) * 1000);
+});
+
+async function clearStoredLogin() {
+  try {
+    await fetch(API_BASE + "/api/auth/logout", { method: "POST" });
+  } catch (e) { /* proceed regardless — worst case the token just expires naturally */ }
+  clearInterval(state.pollTimer);
+  state.loggedIn = false;
+  document.getElementById("login-code-area").style.display = "none";
+  document.getElementById("login-hint").style.display = "block";
+  document.getElementById("login-hint").textContent = "Focus the button below to start.";
+  document.getElementById("login-start-btn").style.display = "flex";
+}
+
+document.getElementById("subs-logout-btn").addEventListener("click", async () => {
+  await clearStoredLogin();
+  toast("Logged out");
+  refreshSubsScreen();
+});
+
+document.getElementById("clear-token-link").addEventListener("click", async () => {
+  await clearStoredLogin();
+  toast("Stored login cleared");
+  refreshSubsScreen();
+});
+
+document.getElementById("subs-subtabs").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-subtab]");
+  if (!t) return;
+  document.querySelectorAll(".subtab").forEach((s) => s.classList.remove("active"));
+  t.classList.add("active");
+  state.subsSubtab = t.dataset.subtab;
+  loadSubsTab(state.subsSubtab);
+});
+
+async function loadSubsTab(tab) {
+  const feedGrid = document.getElementById("subs-feed-grid");
+  const chList = document.getElementById("subs-channels-list");
+  const plList = document.getElementById("subs-playlists-list");
+  feedGrid.style.display = tab === "feed" ? "grid" : "none";
+  chList.style.display = tab === "channels" ? "grid" : "none";
+  plList.style.display = tab === "playlists" ? "grid" : "none";
+
+  if (tab === "feed") {
+    feedGrid.innerHTML = `<div class="empty-state">Loading…</div>`;
+    const data = await api("/api/subscriptions/feed");
+    feedGrid.innerHTML = "";
+    (data.videos || []).forEach((v) => feedGrid.appendChild(videoCard(v, "vcard")));
+  } else if (tab === "channels") {
+    chList.innerHTML = `<div class="empty-state">Loading…</div>`;
+    const data = await api("/api/subscriptions");
+    chList.innerHTML = "";
+    (data.channels || []).forEach((c) => {
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${c.thumbnail || ""}" loading="lazy" style="object-fit:contain; background:#111;"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(c.title)}</div>
+          <div class="vsub">Channel</div>
+        </div>`;
+      card.addEventListener("click", () => openChannelVideos(c.channelId, c.title));
+      chList.appendChild(card);
+    });
+  } else if (tab === "playlists") {
+    plList.innerHTML = `<div class="empty-state">Loading…</div>`;
+    const data = await api("/api/playlists");
+    plList.innerHTML = "";
+    (data.playlists || []).forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${p.thumbnail || ""}" loading="lazy" style="object-fit:contain; background:#111;"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(p.title)}</div>
+          <div class="vsub">${p.itemCount} videos</div>
+        </div>`;
+      card.addEventListener("click", () => openPlaylistVideos(p.id, p.title));
+      plList.appendChild(card);
+    });
+  }
+  refreshFocusables();
+}
+
+async function openPlaylistVideos(id, title) {
+  showScreen("playlist-videos");
+  state.currentPlaylistId = id;
+  state.currentPlaylistTitle = title;
+  document.getElementById("playlist-title").textContent = title || "Playlist";
+  const grid = document.getElementById("playlist-videos-grid");
+  grid.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api(`/api/playlist-items?id=${encodeURIComponent(id)}`);
+    grid.innerHTML = "";
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">This playlist is empty.</div>`;
+    } else {
+      data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Couldn't load this playlist.</div>`;
+  }
+  refreshFocusables();
+}
+
+async function openChannelVideos(id, title) {
+  showScreen("channel-videos");
+  state.currentChannelId = id;
+  state.currentChannelTitle = title;
+  document.getElementById("channel-videos-title").textContent = title || "Channel";
+  const grid = document.getElementById("channel-videos-grid");
+  grid.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api(`/api/channel-videos?id=${encodeURIComponent(id)}`);
+    grid.innerHTML = "";
+    if (!data.videos?.length) {
+      grid.innerHTML = `<div class="empty-state">No videos found for this channel.</div>`;
+    } else {
+      data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Couldn't load this channel.</div>`;
+  }
+  refreshFocusables();
+}
+
+/* ---------------- Watch screen ---------------- */
+let ytApiReady = false;
+window.onYouTubeIframeAPIReady = () => { ytApiReady = true; };
+state.playerFullscreen = false;
+state.playerControlsHidden = false;
+
+function ensurePlayer(videoId) {
+  if (!ytApiReady || typeof YT === "undefined") {
+    setTimeout(() => ensurePlayer(videoId), 200);
+    return;
+  }
+  state.qualityReinforced = false;
+  const wantsQuality = state.preferredQuality && state.preferredQuality !== "default";
+
+  if (state.ytPlayer) {
+    try { state.ytPlayer.unMute(); } catch (e) {}
+    // Object form + suggestedQuality is read at cue time, before the
+    // player makes its own adaptive guess — a stronger signal than
+    // calling setPlaybackQuality() afterward.
+    if (wantsQuality) {
+      state.ytPlayer.loadVideoById({ videoId, suggestedQuality: state.preferredQuality });
+    } else {
+      state.ytPlayer.loadVideoById(videoId);
+    }
+    verifyPlayback();
+    return;
+  }
+  state.ytPlayer = new YT.Player("ytplayer-el", {
+    videoId,
+    playerVars: {
+      autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1,
+      // Undocumented but long-standing — read at cue time. Not guaranteed
+      // to keep working, but a real, useful nudge while it does.
+      ...(wantsQuality ? { vq: state.preferredQuality } : {}),
+    },
+    events: {
+      onReady: (e) => {
+        e.target.unMute();
+        e.target.playVideo();
+        if (wantsQuality) { try { e.target.setPlaybackQuality(state.preferredQuality); } catch (err) {} }
+        verifyPlayback();
+      },
+      onStateChange: (e) => {
+        if (e.data === YT.PlayerState.ENDED) playNextSuggested();
+        if (e.data === YT.PlayerState.PLAYING) {
+          setPlayPauseIcon(true);
+          applyPendingResume();
+          reinforceQualityOnce();
+        }
+        if (e.data === YT.PlayerState.PAUSED) setPlayPauseIcon(false);
+      },
+      onPlaybackQualityChange: (e) => setQualityLabel(e.data),
+    },
+  });
+}
+
+// Once playback actually starts (post-buffering), the adaptive algorithm
+// has settled — this is the last, strongest point to reassert a manual
+// quality choice. Guarded to fire once per video, not on every PLAYING
+// transition (pause/resume shouldn't keep re-requesting it).
+function reinforceQualityOnce() {
+  if (state.qualityReinforced) return;
+  state.qualityReinforced = true;
+  const wantsQuality = state.preferredQuality && state.preferredQuality !== "default";
+  if (!wantsQuality || !state.ytPlayer) return;
+  try { state.ytPlayer.setPlaybackQuality(state.preferredQuality); } catch (e) {}
+}
+
+// Human labels for YT's internal quality codes — this is real measured
+// quality (updates live as the player actually adapts), not a static
+// "Auto" placeholder.
+const QUALITY_LABELS = {
+  hd2160: "4K", hd1440: "1440p", hd1080: "1080p", hd720: "720p",
+  large: "480p", medium: "360p", small: "240p", tiny: "144p",
+  auto: "Auto", default: "Auto",
+};
+function setQualityLabel(code) {
+  const el = document.getElementById("pc-quality");
+  if (!el) return;
+  el.textContent = QUALITY_LABELS[code] || "Auto";
+  el.style.display = "flex";
+}
+
+document.getElementById("pc-quality").addEventListener("click", openQualityOverlay);
+
+function openQualityOverlay() {
+  const p = state.ytPlayer;
+  if (!p) return;
+  let levels = [];
+  try { levels = p.getAvailableQualityLevels() || []; } catch (e) {}
+  if (!levels.length) levels = ["hd1080", "hd720", "large", "medium", "small", "tiny"];
+  levels = ["default", ...levels.filter((l) => l !== "default")];
+
+  const list = document.getElementById("quality-list");
+  list.innerHTML = "";
+  levels.forEach((code) => {
+    const row = document.createElement("div");
+    row.className = "list-row";
+    row.tabIndex = 0;
+    row.style.justifyContent = "center";
+    row.innerHTML = `<div class="lr-title">${QUALITY_LABELS[code] || code}</div>`;
+    row.addEventListener("click", () => {
+      applyQuality(p, code);
+      closeQualityOverlay();
+    });
+    list.appendChild(row);
+  });
+
+  document.getElementById("quality-overlay").style.display = "flex";
+  state.activeOverlayClose = closeQualityOverlay;
+  refreshFocusables();
+}
+
+function closeQualityOverlay() {
+  document.getElementById("quality-overlay").style.display = "none";
+  state.activeOverlayClose = null;
+  refreshFocusables();
+}
+
+// YouTube's embedded player treats setPlaybackQuality as a request, not a
+// command — it can silently keep its own adaptive choice (this is a known
+// limitation of the public IFrame API, not something we can force past).
+// Calling it twice and re-checking afterward is the most reliable pattern:
+// it sometimes only "takes" once the player has re-buffered.
+function applyQuality(p, code) {
+  state.preferredQuality = code; // carries forward to the next video's cue-time request
+  setQualityLabel(code === "default" ? "auto" : code);
+  toast(code === "default" ? "Set to Auto" : `Requesting ${QUALITY_LABELS[code] || code}…`);
+  try { p.setPlaybackQuality(code); } catch (e) {}
+  setTimeout(() => {
+    try { p.setPlaybackQuality(code); } catch (e) {}
+  }, 400);
+  setTimeout(() => {
+    let actual = "default";
+    try { actual = p.getPlaybackQuality() || "default"; } catch (e) {}
+    setQualityLabel(actual);
+    if (code !== "default" && actual !== code) {
+      toast(`YouTube kept it at ${QUALITY_LABELS[actual] || actual} — it doesn't always honor a manual choice`);
+    }
+  }, 2500);
+}
+
+document.getElementById("quality-cancel").addEventListener("click", closeQualityOverlay);
+
+function applyPendingResume() {
+  if (!state.pendingResume) return;
+  try { state.ytPlayer.seekTo(state.pendingResume, true); } catch (e) {}
+  state.pendingResume = null;
+}
+
+// Some browsers/webviews silently block unmuted autoplay. Check back
+// shortly after starting a video; if it never actually started, retry,
+// and if it's still blocked, fall back to muted playback (which is
+// essentially always allowed) rather than leaving a dead player.
+function verifyPlayback(attempt) {
+  attempt = attempt || 1;
+  setTimeout(() => {
+    const p = state.ytPlayer;
+    if (!p || typeof p.getPlayerState !== "function" || typeof YT === "undefined") return;
+    const s = p.getPlayerState();
+    if (s === YT.PlayerState.PLAYING || s === YT.PlayerState.BUFFERING) return;
+    if (attempt === 1) {
+      try { p.playVideo(); } catch (e) {}
+      verifyPlayback(2);
+    } else if (attempt === 2) {
+      try {
+        p.mute();
+        p.playVideo();
+        toast("Autoplay was blocked — tap play to unmute");
+      } catch (e) {}
+    }
+  }, 900);
+}
+
+// Save watch position every 5s while actually watching, plus once more
+// on the way out, so History/resume reflects where you actually stopped.
+function startPositionTracking() {
+  stopPositionTracking();
+  state.positionTimer = setInterval(savePosition, 5000);
+}
+function stopPositionTracking() {
+  if (state.positionTimer) clearInterval(state.positionTimer);
+  state.positionTimer = null;
+}
+function savePosition() {
+  const p = state.ytPlayer;
+  const v = state.currentVideoData;
+  if (!p || !v || typeof p.getCurrentTime !== "function") return;
+  const position = p.getCurrentTime();
+  const duration = p.getDuration ? p.getDuration() : 0;
+  if (!position) return;
+  fetch(API_BASE + "/api/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      videoId: v.id, title: v.title, channelId: v.channelId, channelTitle: v.channelTitle,
+      thumbnail: v.thumbnail, categoryId: v.categoryId, position, duration,
+    }),
+  }).catch(() => {});
+}
+
+function stopPlayer() {
+  savePosition();
+  stopPositionTracking();
+  try { state.ytPlayer && state.ytPlayer.stopVideo(); } catch (e) {}
+}
+
+function seekPlayer(deltaSeconds) {
+  const p = state.ytPlayer;
+  if (!p || typeof p.getCurrentTime !== "function") return;
+  const t = Math.max(0, p.getCurrentTime() + deltaSeconds);
+  p.seekTo(t, true);
+}
+
+function togglePlayPause() {
+  const p = state.ytPlayer;
+  if (!p || typeof YT === "undefined") return;
+  const s = p.getPlayerState();
+  if (s === YT.PlayerState.PLAYING) {
+    p.pauseVideo();
+  } else {
+    try { p.unMute(); } catch (e) {}
+    p.playVideo();
+  }
+}
+
+function setPlayPauseIcon(playing) {
+  const el = document.getElementById("pc-playpause");
+  if (el) el.textContent = playing ? "❚❚" : "▶";
+}
+
+function toggleFullscreen() {
+  state.playerFullscreen = !state.playerFullscreen;
+  document.getElementById("screen-watch").classList.toggle("fullscreen-mode", state.playerFullscreen);
+  refreshFocusables();
+}
+
+function toggleControlsHidden() {
+  state.playerControlsHidden = !state.playerControlsHidden;
+  document.getElementById("screen-watch").classList.toggle("controls-hidden", state.playerControlsHidden);
+  refreshFocusables();
+}
+
+document.getElementById("pc-rewind").addEventListener("click", () => seekPlayer(-10));
+document.getElementById("pc-forward").addEventListener("click", () => seekPlayer(10));
+document.getElementById("pc-playpause").addEventListener("click", togglePlayPause);
+document.getElementById("pc-fullscreen").addEventListener("click", toggleFullscreen);
+document.getElementById("pc-hideui").addEventListener("click", toggleControlsHidden);
+
+async function openVideo(videoId) {
+  if (state.screen !== "watch") {
+    state.returnContext = captureCurrentContext();
+  }
+  state.currentVideoId = videoId;
+  showScreen("watch");
+  ensurePlayer(videoId);
+  document.getElementById("screen-watch").classList.remove("fullscreen-mode", "controls-hidden");
+  state.playerFullscreen = false;
+  state.playerControlsHidden = false;
+  document.getElementById("pc-quality").style.display = "none";
+  startPositionTracking();
+
+  document.getElementById("watch-title").textContent = "Loading…";
+  document.getElementById("comments-list").innerHTML = "";
+  document.getElementById("suggest-list").innerHTML = `<div class="empty-state">Loading…</div>`;
+
+  const [videoResult, relatedResult, commentsResult] = await Promise.allSettled([
+    api(`/api/video?id=${videoId}`),
+    api(`/api/related?id=${videoId}`),
+    api(`/api/comments?id=${videoId}`),
+  ]);
+
+  if (videoResult.status === "rejected") {
+    document.getElementById("watch-title").textContent = "Couldn't load this video";
+    toast("Couldn't load video — try again");
+    state.currentVideoData = null;
+    refreshFocusables();
+    return;
+  }
+  const video = videoResult.value;
+
+  state.currentVideoData = video;
+  state.pendingResume = video.resumePosition || null;
+  applyPendingResume(); // in case playback already started before this resolved
+  document.getElementById("watch-title").textContent = video.title || "";
+  document.getElementById("watch-stats").textContent =
+    `${video.viewCount || "0"} views • ${video.publishedAgo || ""}`;
+
+  state.liked = video.myRating === "like";
+  const likeBtn = document.querySelector('[data-action="like"]');
+  likeBtn.classList.toggle("active-like", state.liked);
+  document.getElementById("like-count").textContent =
+    video.likeCountRaw != null ? `Like · ${fmtCountJS(video.likeCountRaw)}` : "Like";
+
+  document.getElementById("channel-avatar").src = video.channelAvatar || "";
+  document.getElementById("channel-name").textContent = video.channelTitle || "";
+  document.getElementById("channel-subs").textContent = video.channelSubs ? `${video.channelSubs} subscribers` : "";
+
+  const cList = document.getElementById("comments-list");
+  if (commentsResult.status === "rejected") {
+    document.getElementById("comments-header").textContent = "Comments";
+    cList.innerHTML = `<div class="empty-state">Couldn't load comments.</div>`;
+  } else {
+    const comments = commentsResult.value;
+    document.getElementById("comments-header").textContent = comments.count ? `${comments.count} Comments` : "Comments";
+    cList.innerHTML = "";
+    if (comments.disabled) {
+      cList.innerHTML = `<div class="empty-state">Comments are off for this video.</div>`;
+    } else {
+      comments.comments.forEach((c) => {
+        const el = document.createElement("div");
+        el.className = "comment";
+        el.innerHTML = `<img src="${c.authorAvatar || ""}"/><div class="comment-body"><span class="comment-author">${escapeHtml(c.author)}</span>${escapeHtml(c.text)}<br><span style="opacity:.7">${c.publishedAgo} · ${c.likeCount} likes</span></div>`;
+        cList.appendChild(el);
+      });
+    }
+  }
+
+  const sList = document.getElementById("suggest-list");
+  sList.innerHTML = "";
+  if (relatedResult.status === "rejected") {
+    sList.innerHTML = `<div class="empty-state">Couldn't load suggestions.</div>`;
+    state.upNext = null;
+  } else {
+    const related = relatedResult.value;
+    (related.videos || []).forEach((v) => {
+      const el = document.createElement("div");
+      el.className = "suggest-card";
+      el.tabIndex = 0;
+      el.dataset.videoId = v.id;
+      el.innerHTML = `
+        <div class="thumb-wrap"><img src="${v.thumbnail || ""}" loading="lazy"/></div>
+        <div class="stitle">${escapeHtml(v.title || "")}</div>
+        <div class="ssub">${v.channelTitle ? escapeHtml(v.channelTitle) + " • " : ""}${v.viewCount ? v.viewCount + " views" : ""}${v.likeCount ? " • " + v.likeCount + " likes" : ""}</div>
+        <div class="ssub">${v.publishedAgo || ""}</div>`;
+      el.addEventListener("click", () => openVideo(v.id));
+      sList.appendChild(el);
+    });
+    state.upNext = (related.videos || [])[0]?.id || null;
+    if (!related.videos?.length) sList.innerHTML = `<div class="empty-state">No suggestions available.</div>`;
+  }
+
+  refreshFocusables();
+}
+
+function playNextSuggested() {
+  if (state.upNext) openVideo(state.upNext);
+}
+
+/* ---------------- Shorts full-screen player ----------------
+   No touch/swipe on the glasses, so paging is driven by
+   ArrowUp/ArrowDown (see the keydown router above). Next batch
+   loads automatically as the buffer runs low — "infinite scroll"
+   without an actual scroll gesture.
+------------------------------------------------------------- */
+state.shorts = { list: [], index: -1, nextPageToken: null, loading: false, player: null, controlIndex: 0, likedIds: new Set() };
+
+function openShortsScreen() {
+  showScreen("shorts");
+  setShortsControl(0);
+  if (state.shorts.list.length === 0) {
+    loadShortsBatch(true);
+  } else {
+    playShortAt(state.shorts.index >= 0 ? state.shorts.index : 0);
+  }
+}
+
+async function loadShortsBatch(autoplayFirst) {
+  if (state.shorts.loading) return;
+  state.shorts.loading = true;
+  document.getElementById("shorts-loading").style.display = "flex";
+  try {
+    const qs = state.shorts.nextPageToken ? `?pageToken=${state.shorts.nextPageToken}` : "";
+    const data = await api(`/api/shorts${qs}`);
+    state.shorts.list = state.shorts.list.concat(data.shorts || []);
+    state.shorts.nextPageToken = data.nextPageToken || null;
+    if (autoplayFirst && state.shorts.index === -1 && state.shorts.list.length) {
+      playShortAt(0);
+    }
+  } catch (e) {
+    toast("Couldn't load shorts");
+  }
+  state.shorts.loading = false;
+  document.getElementById("shorts-loading").style.display = "none";
+}
+
+function ensureShortsPlayer(videoId) {
+  if (typeof YT === "undefined" || !YT.Player) {
+    setTimeout(() => ensureShortsPlayer(videoId), 200);
+    return;
+  }
+  if (state.shorts.player) {
+    try { state.shorts.player.unMute(); } catch (e) {}
+    state.shorts.player.loadVideoById(videoId);
+    return;
+  }
+  state.shorts.player = new YT.Player("shorts-player-el", {
+    videoId,
+    playerVars: { autoplay: 1, playsinline: 1, controls: 0, loop: 1, rel: 0 },
+    events: {
+      onReady: (e) => { e.target.unMute(); e.target.playVideo(); setShortsPlayIcon(true); },
+      onStateChange: (e) => {
+        if (e.data === YT.PlayerState.ENDED) nextShort();
+        if (e.data === YT.PlayerState.PLAYING) setShortsPlayIcon(true);
+        if (e.data === YT.PlayerState.PAUSED) setShortsPlayIcon(false);
+      },
+    },
+  });
+}
+
+function stopShortsPlayer() {
+  try { state.shorts.player && state.shorts.player.stopVideo(); } catch (e) {}
+}
+
+function toggleShortPlayback() {
+  const p = state.shorts.player;
+  if (!p || typeof YT === "undefined") return;
+  const s = p.getPlayerState();
+  if (s === YT.PlayerState.PLAYING) p.pauseVideo();
+  else { try { p.unMute(); } catch (e) {} p.playVideo(); }
+}
+
+function setShortsPlayIcon(playing) {
+  const el = document.getElementById("sc-playpause");
+  if (!el) return;
+  el.innerHTML = playing
+    ? `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+}
+
+function toggleShortMute() {
+  const p = state.shorts.player;
+  if (!p) return;
+  const muted = p.isMuted();
+  if (muted) p.unMute(); else p.mute();
+  setShortsMuteIcon(!muted);
+}
+
+function setShortsMuteIcon(muted) {
+  const el = document.getElementById("sc-mute");
+  if (!el) return;
+  el.innerHTML = muted
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>`;
+}
+
+async function toggleShortLike() {
+  const v = state.shorts.list[state.shorts.index];
+  if (!v) return;
+  if (!state.loggedIn) { toast("Sign in under Subscriptions first"); return; }
+  const alreadyLiked = state.shorts.likedIds.has(v.id);
+  const nextAction = alreadyLiked ? "unrate" : "like";
+  try {
+    await fetch(API_BASE + "/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
+    });
+    if (alreadyLiked) state.shorts.likedIds.delete(v.id); else state.shorts.likedIds.add(v.id);
+    updateShortsLikeUI(v.id);
+    toast(alreadyLiked ? "Removed like" : "Liked");
+  } catch (e) {
+    toast("Action failed");
+  }
+}
+
+function updateShortsLikeUI(videoId) {
+  const liked = state.shorts.likedIds.has(videoId);
+  const btn = document.getElementById("sc-like");
+  btn.classList.toggle("active-like", liked);
+  document.getElementById("short-like-count").textContent = liked ? "Liked" : "Like";
+}
+
+// Left/right cycle through the on-screen controls; up/down stays reserved
+// for switching between shorts. Enter activates whichever is focused.
+const SHORTS_CONTROLS = ["playpause", "mute", "like", "back"];
+function moveShortsControl(dir) {
+  const next = Math.max(0, Math.min(SHORTS_CONTROLS.length - 1, state.shorts.controlIndex + dir));
+  setShortsControl(next);
+}
+function setShortsControl(index) {
+  state.shorts.controlIndex = index;
+  const ids = { playpause: "sc-playpause", mute: "sc-mute", like: "sc-like", back: "sc-back" };
+  Object.values(ids).forEach((id) => document.getElementById(id)?.classList.remove("focused"));
+  const el = document.getElementById(ids[SHORTS_CONTROLS[index]]);
+  if (el) { el.classList.add("focused"); el.focus({ preventScroll: true }); }
+}
+function activateShortsControl() {
+  const control = SHORTS_CONTROLS[state.shorts.controlIndex];
+  if (control === "playpause") toggleShortPlayback();
+  else if (control === "mute") toggleShortMute();
+  else if (control === "like") toggleShortLike();
+  else if (control === "back") returnFromShorts();
+}
+
+function playShortAt(i) {
+  const list = state.shorts.list;
+  if (i < 0 || i >= list.length) return;
+  state.shorts.index = i;
+  const v = list[i];
+  state.currentVideoId = v.id;
+  ensureShortsPlayer(v.id);
+  setShortsControl(0); // reset focus to play/pause on every new short
+  updateShortsLikeUI(v.id);
+  document.getElementById("short-title").textContent = v.title || "";
+  document.getElementById("short-sub").textContent =
+    `${v.channelTitle || ""}${v.viewCount ? " • " + v.viewCount + " views" : ""}${v.publishedAgo ? " • " + v.publishedAgo : ""}`;
+
+  if (list.length - i <= 3 && state.shorts.nextPageToken && !state.shorts.loading) {
+    loadShortsBatch(false);
+  }
+}
+
+function nextShort() { playShortAt(state.shorts.index + 1); }
+function prevShort() { playShortAt(state.shorts.index - 1); }
+
+document.getElementById("sc-playpause").addEventListener("click", () => { setShortsControl(0); toggleShortPlayback(); });
+document.getElementById("sc-mute").addEventListener("click", () => { setShortsControl(1); toggleShortMute(); });
+document.getElementById("sc-like").addEventListener("click", () => { setShortsControl(2); toggleShortLike(); });
+document.getElementById("sc-back").addEventListener("click", () => { setShortsControl(3); returnFromShorts(); });
+
+// Swipe left/right moves between controls (matching arrow-key behavior);
+// swipe up/down still switches shorts via the existing keydown path.
+(function setupShortsSwipe() {
+  const stage = document.getElementById("shorts-stage");
+  let startX = null, startY = null;
+  stage.addEventListener("pointerdown", (e) => { startX = e.clientX; startY = e.clientY; });
+  stage.addEventListener("pointerup", (e) => {
+    if (startX === null) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    startX = null;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 40) {
+      moveShortsControl(dx > 0 ? 1 : -1);
+    }
+  });
+})();
+
+function fmtCountJS(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+document.getElementById("action-row").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const v = state.currentVideoData;
+  if (!v) return;
+
+  if ((action === "like" || action === "dislike" || action === "save") && !state.loggedIn) {
+    toast("Sign in under Subscriptions first");
+    return;
+  }
+
+  if (action === "save") { openSaveOverlay(); return; }
+
+  if (action === "like") {
+    const wasLiked = state.liked;
+    const nextAction = wasLiked ? "unrate" : "like";
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: nextAction, videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
+      });
+      state.liked = !wasLiked;
+      v.likeCountRaw = Math.max(0, (v.likeCountRaw || 0) + (state.liked ? 1 : -1));
+      document.getElementById("like-count").textContent = `Like · ${fmtCountJS(v.likeCountRaw)}`;
+      btn.classList.toggle("active-like", state.liked);
+      toast(state.liked ? "Liked" : "Removed like");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+
+  if (action === "dislike") {
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dislike", videoId: v.id, channelId: v.channelId, categoryId: v.categoryId }),
+      });
+      // A video can only carry one rating on YouTube's side — disliking
+      // silently clears a prior like there too, so mirror that here.
+      if (state.liked) {
+        state.liked = false;
+        v.likeCountRaw = Math.max(0, (v.likeCountRaw || 0) - 1);
+        document.getElementById("like-count").textContent = `Like · ${fmtCountJS(v.likeCountRaw)}`;
+        document.querySelector('[data-action="like"]').classList.remove("active-like");
+      }
+      toast("Disliked");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+
+  if (action === "not_interested" || action === "dont_recommend_channel") {
+    try {
+      await fetch(API_BASE + "/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, videoId: v.id, channelId: v.channelId }),
+      });
+      toast(action === "not_interested" ? "Won't recommend this video" : "Won't recommend this channel");
+    } catch (err) {
+      toast("Action failed");
+    }
+    return;
+  }
+});
+
+/* ---------------- Save to playlist ---------------- */
+async function openSaveOverlay() {
+  const overlay = document.getElementById("save-overlay");
+  const list = document.getElementById("save-list");
+  list.innerHTML = `<div class="empty-state">Loading playlists…</div>`;
+  overlay.style.display = "flex";
+  state.activeOverlayClose = closeSaveOverlay;
+  refreshFocusables();
+  try {
+    const data = await api("/api/playlists");
+    list.innerHTML = "";
+    (data.playlists || []).forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "list-row";
+      row.tabIndex = 0;
+      row.innerHTML = `<img src="${p.thumbnail || ""}"/><div><div class="lr-title">${escapeHtml(p.title)}</div><div class="lr-sub">${p.itemCount} videos</div></div>`;
+      row.addEventListener("click", () => saveToPlaylist(p.id, p.title));
+      list.appendChild(row);
+    });
+    if (!data.playlists?.length) list.innerHTML = `<div class="empty-state">No playlists yet — Save will create one.</div>`;
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Couldn't load playlists.</div>`;
+  }
+  refreshFocusables();
+}
+
+function closeSaveOverlay() {
+  document.getElementById("save-overlay").style.display = "none";
+  state.activeOverlayClose = null;
+  refreshFocusables();
+}
+
+async function saveToPlaylist(playlistId, title) {
+  const v = state.currentVideoData;
+  closeSaveOverlay();
+  if (!v) return;
+  try {
+    await fetch(API_BASE + "/api/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", videoId: v.id, playlistId }),
+    });
+    toast(`Saved to ${title}`);
+  } catch (e) {
+    toast("Save failed");
+  }
+}
+
+document.getElementById("save-cancel").addEventListener("click", closeSaveOverlay);
+
+document.getElementById("sub-btn").addEventListener("click", async () => {
+  const v = state.currentVideoData;
+  if (!v) return;
+  if (!state.loggedIn) { toast("Sign in under Subscriptions first"); return; }
+  const btn = document.getElementById("sub-btn");
+  const nowSubscribed = !btn.classList.contains("subscribed");
+  await fetch(API_BASE + "/api/action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: nowSubscribed ? "subscribe" : "unsubscribe", channelId: v.channelId }),
+  });
+  btn.classList.toggle("subscribed", nowSubscribed);
+  btn.textContent = nowSubscribed ? "Subscribed" : "Subscribe";
+  toast(nowSubscribed ? "Subscribed" : "Unsubscribed");
+});
+
+/* ---------------- On-screen search keyboard ----------------
+   The glasses have no physical/OS keyboard, so search is typed via
+   an on-screen QWERTY grid navigated the same way as everything
+   else — arrow keys move focus, Enter presses the focused key.
+------------------------------------------------------------- */
+const KB_LAYERS = {
+  letters: [
+    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+    ["z", "x", "c", "v", "b", "n", "m"],
+  ],
+  numbers: [
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+    ["-", "/", ":", ";", "(", ")", "$", "&", "@"],
+    [".", ",", "?", "!", "'"],
+  ],
+};
+state.searchQuery = "";
+state.kbLayer = "letters";
+
+function buildKeyboard() {
+  const grid = document.getElementById("kb-grid");
+  grid.innerHTML = "";
+  KB_LAYERS[state.kbLayer].forEach((row) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "kb-row";
+    row.forEach((ch) => {
+      const key = document.createElement("div");
+      key.className = "kb-key";
+      key.tabIndex = 0;
+      key.textContent = ch;
+      key.addEventListener("click", () => { state.searchQuery += ch; renderQuery(); });
+      rowEl.appendChild(key);
+    });
+    grid.appendChild(rowEl);
+  });
+
+  const specialRow = document.createElement("div");
+  specialRow.className = "kb-row";
+  specialRow.innerHTML = `
+    <div class="kb-key" tabindex="0" id="kb-toggle">${state.kbLayer === "letters" ? "123" : "ABC"}</div>
+    <div class="kb-key wide" tabindex="0" id="kb-space">Space</div>
+    <div class="kb-key" tabindex="0" id="kb-back">&larr;</div>
+    <div class="kb-key wide accent" tabindex="0" id="kb-search">Search</div>`;
+  grid.appendChild(specialRow);
+
+  document.getElementById("kb-toggle").addEventListener("click", () => {
+    state.kbLayer = state.kbLayer === "letters" ? "numbers" : "letters";
+    buildKeyboard();
+  });
+  document.getElementById("kb-space").addEventListener("click", () => { state.searchQuery += " "; renderQuery(); });
+  document.getElementById("kb-back").addEventListener("click", () => { state.searchQuery = state.searchQuery.slice(0, -1); renderQuery(); });
+  document.getElementById("kb-search").addEventListener("click", () => performSearch());
+  refreshFocusables();
+}
+
+function renderQuery() {
+  document.getElementById("kb-query").innerHTML = `${escapeHtml(state.searchQuery)}<span class="cursor"></span>`;
+  updateSuggestions();
+}
+
+let suggestDebounceTimer = null;
+function updateSuggestions() {
+  clearTimeout(suggestDebounceTimer);
+  const q = state.searchQuery.trim();
+  if (!q) { renderSuggestions([]); return; }
+  suggestDebounceTimer = setTimeout(async () => {
+    try {
+      const data = await api(`/api/suggest?q=${encodeURIComponent(q)}`);
+      // Query may have changed while this was in flight — ignore stale results.
+      if (state.searchQuery.trim() === q) renderSuggestions(data.suggestions || []);
+    } catch (e) { /* ignore */ }
+  }, 250);
+}
+
+function renderSuggestions(suggestions) {
+  const box = document.getElementById("kb-suggestions");
+  if (!suggestions.length) {
+    box.style.display = "none";
+    box.innerHTML = "";
+    refreshFocusables();
+    return;
+  }
+  box.innerHTML = "";
+  suggestions.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "kb-suggest-row";
+    row.tabIndex = 0;
+    row.textContent = s;
+    row.addEventListener("click", () => performSearch(s));
+    box.appendChild(row);
+  });
+  box.style.display = "flex";
+  refreshFocusables();
+}
+
+async function performSearch(queryOverride) {
+  const q = (queryOverride || state.searchQuery).trim();
+  if (!q) return;
+  document.getElementById("search-label").textContent = q;
+  showScreen("home");
+  document.getElementById("shorts-section").style.display = "none";
+  document.querySelectorAll(".tab-chip").forEach((c) => c.classList.remove("active"));
+  const grid = document.getElementById("home-grid");
+  grid.innerHTML = `<div class="empty-state">Searching…</div>`;
+  document.getElementById("home-content").scrollTop = 0;
+  try {
+    const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    grid.innerHTML = "";
+    data.videos.forEach((v) => grid.appendChild(videoCard(v, "vcard")));
+    state.homeCache = { mode: "search", tab: null, query: q, videos: data.videos, nextPageToken: data.nextPageToken || null };
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Search failed.</div>`;
+    state.homeCache = null;
+  }
+  refreshFocusables();
+}
+
+document.getElementById("search-trigger").addEventListener("click", () => {
+  state.searchQuery = "";
+  state.kbLayer = "letters";
+  showScreen("keyboard");
+  buildKeyboard();
+  renderQuery();
+});
+
+/* ---------------- History ---------------- */
+async function loadHistory() {
+  const list = document.getElementById("history-list");
+  list.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const data = await api("/api/history");
+    list.innerHTML = "";
+    if (!data.history?.length) {
+      list.innerHTML = `<div class="empty-state">No watch history yet.</div>`;
+      refreshFocusables();
+      return;
+    }
+    data.history.forEach((h) => {
+      const pct = h.duration ? Math.min(100, Math.round((h.position / h.duration) * 100)) : 0;
+      const card = document.createElement("div");
+      card.className = "vcard";
+      card.tabIndex = 0;
+      card.dataset.videoId = h.videoId;
+      card.innerHTML = `
+        <div class="thumb-wrap"><img src="${h.thumbnail || ""}" loading="lazy"/></div>
+        <div class="meta">
+          <div class="vtitle">${escapeHtml(h.title || "")}</div>
+          <div class="vsub">${escapeHtml(h.channelTitle || "")}</div>
+          <div class="history-progress"><div class="history-progress-fill" style="width:${pct}%;"></div></div>
+        </div>`;
+      card.addEventListener("click", () => openVideo(h.videoId));
+      list.appendChild(card);
+    });
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state">Couldn't load history.</div>`;
+  }
+  refreshFocusables();
+}
+
+/* ---------------- Taste profile ---------------- */
+document.getElementById("taste-profile-btn").addEventListener("click", async () => {
+  showScreen("taste");
+  document.getElementById("taste-summary").textContent = "Loading…";
+  try {
+    const p = await api("/api/taste-profile");
+    document.getElementById("taste-summary").textContent = p.summary;
+    document.getElementById("taste-categories").innerHTML =
+      p.topCategories.map((c) => `<div class="lr-sub" style="margin-bottom:2px;">${escapeHtml(c.name)}</div>`).join("") ||
+      `<div class="empty-state">Nothing yet.</div>`;
+    document.getElementById("taste-channels").innerHTML =
+      p.topChannels.map((c) => `<div class="lr-sub" style="margin-bottom:2px;">${escapeHtml(c.title)}</div>`).join("") ||
+      `<div class="empty-state">Nothing yet.</div>`;
+    document.getElementById("taste-searches").textContent = p.recentSearches.join(", ") || "None yet.";
+  } catch (e) {
+    document.getElementById("taste-summary").textContent = "Couldn't load taste profile.";
+  }
+  refreshFocusables();
+});
+
+/* ---------------- Region detection (GPS -> country code) ----------------
+   Per the platform's geolocation model, this is relayed through the
+   paired phone. Falls back to "US" silently if permission is denied or
+   unavailable — the Worker already defaults to "US" either way.
+------------------------------------------------------------------- */
+function detectRegion() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      fetch(API_BASE + "/api/region", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      }).catch(() => {});
+    },
+    () => { /* denied/unavailable — Worker defaults to US */ },
+    { timeout: 8000 }
+  );
+}
+
+/* ---------------- Subscription sync (new-upload badge) ----------------
+   Runs on startup and every 2 hours per the requested background cadence.
+   Also renews the WebSub push subscriptions server-side, so most new
+   uploads actually arrive within seconds rather than waiting for the
+   next 2-hour sync — this poll is the fallback, not the only mechanism.
+------------------------------------------------------------------- */
+async function syncSubscriptions() {
+  try {
+    const data = await api("/api/subscriptions/sync");
+    if (data.newCount > 0) {
+      document.getElementById("subs-badge").style.display = "block";
+    }
+  } catch (e) { /* not logged in yet, or offline — fine */ }
+}
+
+/* ---------------- Init ---------------- */
+loadHome("all");
+setupHomeScrollHandling();
+refreshFocusables();
+async function checkAuthStatus() {
+  try {
+    const status = await api("/api/auth/status");
+    state.loggedIn = status.loggedIn;
+  } catch (e) { /* offline or Worker unreachable — stays false, harmless */ }
+}
+
+detectRegion();
+syncSubscriptions();
+checkAuthStatus();
+setInterval(syncSubscriptions, 2 * 60 * 60 * 1000);
+</script>
+</body>
+</html>
